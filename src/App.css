@@ -1,0 +1,105 @@
+#root {
+  min-height: 100vh;
+}
+
+.app-logo {
+  padding: 24px 20px 12px;
+}
+
+.app-header {
+  height: auto;
+  padding: 20px 24px;
+  background: #f5f7fb;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+}
+
+.app-content {
+  padding: 20px 24px;
+}
+
+.page-section {
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(240px, 1fr));
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.kanban-column {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+}
+
+.kanban-column-header {
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kanban-column-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.application-card {
+  border-radius: 12px;
+}
+
+.ant-table-wrapper .ant-table-container,
+.ant-table-wrapper .ant-table-content > table,
+.ant-list-bordered,
+.ant-list-split .ant-list-items,
+.ant-card .ant-timeline,
+.ant-card .ant-timeline-item,
+.ant-card .ant-timeline-item-content {
+  border-color: #94a3b8 !important;
+}
+
+.ant-table-wrapper .ant-table-container,
+.ant-table-wrapper .ant-table-content > table,
+.ant-list-bordered,
+.ant-list-split .ant-list-items,
+.ant-card .ant-card-body > .ant-timeline {
+  border: 1px solid #94a3b8 !important;
+  border-radius: 12px;
+}
+
+.ant-list-split .ant-list-item {
+  border-bottom: 1px solid #94a3b8 !important;
+}
+
+.ant-list-split .ant-list-item:last-child {
+  border-bottom: none !important;
+}
+
+.ant-card .ant-card-body > .ant-timeline {
+  padding: 16px;
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th,
+.ant-table-wrapper .ant-table-tbody > tr > td,
+.ant-table-wrapper .ant-table-tbody > tr > th {
+  border-inline-end: 1px solid #94a3b8 !important;
+  border-bottom: 1px solid #94a3b8 !important;
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th:last-child,
+.ant-table-wrapper .ant-table-tbody > tr > td:last-child,
+.ant-table-wrapper .ant-table-tbody > tr > th:last-child {
+  border-inline-end: none !important;
+}

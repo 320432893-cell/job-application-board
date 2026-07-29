@@ -1,0 +1,110 @@
+# 阶段 1 最小集：import-linter / detect-secrets / semgrep / 工具契约 / changed-file ruff / dependency approval / pip-audit(manual)
+# 设计原则：
+#   - detect-secrets 与项目依赖无关 → 用 pre-commit 隔离 env (repo: 模式)
+#   - import-linter 必须能 import 到 src/<package> 类型 → 用 language: system 跑项目 .venv 里的工具
+#   - semgrep / pip-audit 跑项目 .venv 里的固定 dev 依赖，避免 uvx 临时解析/缓存
+#   - detect-secrets 版本钉死(rev); import-linter/semgrep/pip-audit 走项目 venv
+#   - pip-audit 需要解析依赖漏洞库，默认放 manual 阶段；CI 中固定执行
+#   - ruff 全量和格式仍是历史基线工具；默认只阻塞 staged Python 文件的新增 lint 问题，避免旧账阻塞提交
+#   - basedpyright 当前是历史代码质量基线工具，先 manual，避免把已知红灯伪装成阻塞检查
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.13
+    hooks:
+      - id: ruff-check
+        stages: [manual]
+      - id: ruff-format
+        stages: [manual]
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        exclude: |
+          (?x)^(
+            uv\.lock|
+            \.ai-config/config/settings\.json|
+            gates/.*
+          )$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=5120"]
+      - id: check-json
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: python-compile
+        name: python compile smoke check
+        entry: uv run python tools/check.py python-compile
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: basedpyright
+        name: basedpyright (manual baseline)
+        entry: uv run python tools/check.py basedpyright
+        language: system
+        stages: [manual]
+        types: [python]
+        # 只检查正式区;支撑区与测试区后续阶段再纳入(此处不写死目录名,布局由 project_model 定)
+        files: ^src/
+        pass_filenames: false
+
+      - id: ruff-staged
+        name: ruff staged Python files
+        entry: uv run python tools/check.py ruff-staged
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: import-linter
+        name: import-linter (分层契约)
+        entry: uv run python tools/check.py import-linter
+        language: system
+        pass_filenames: false
+        # 任何 .py 改动都跑一遍(架构契约级,不该被跳)
+        types: [python]
+
+      - id: lifecycle
+        name: lifecycle identity tag (非正式区身份标注)
+        entry: uv run python tools/check.py lifecycle-changed
+        language: system
+        pass_filenames: false
+        # 只卡新增/改动的非正式区文件缺 # lifecycle: 身份标注;full sweep 在 CI 跑。
+        types: [python]
+
+      - id: rule-tool-contracts
+        name: rule/tool contract check
+        entry: uv run python tools/check.py rule-tool-contracts
+        language: system
+        pass_filenames: false
+        files: ^(\.ai-config/.*|\.semgrep/.*|\.github/workflows/.*|\.pre-commit-config\.yaml|\.ruff\.toml|\.importlinter|\.gitignore|tools/.*\.py|pyproject\.toml|uv\.lock)$
+
+      - id: dependency-change-approval
+        name: dependency/lock change approval gate
+        entry: uv run python tools/check.py dependency-change-approval
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock|requirements.*\.txt|.*/requirements.*\.txt|requirements\.lock|.*/requirements\.lock|package\.json|package-lock\.json)$
+
+      - id: semgrep
+        name: semgrep (project static guardrails)
+        entry: uv run python tools/check.py semgrep
+        language: system
+        pass_filenames: false
+        files: ^(.+\.py|\.semgrep/.+\.ya?ml)$
+
+      - id: pip-audit
+        name: pip-audit (dependency vulnerabilities)
+        entry: uv run python tools/check.py pip-audit
+        language: system
+        pass_filenames: false
+        stages: [manual]

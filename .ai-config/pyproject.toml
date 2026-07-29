@@ -1,0 +1,41 @@
+# 闸层自己的依赖清单。
+#
+# 为什么单独一份:工程闸是 Python 写的,但被它管的项目不一定是 Python 项目。往一个纯
+# TS/Node 仓的 package.json 或新建的根 pyproject.toml 里塞 pydantic/semgrep,是让闸的
+# 实现细节污染人家的依赖清单。接管脚本(adopt_managed)也刻意不碰项目的清单——所以闸
+# 必须自带一份。
+#
+# 怎么用:
+#   uv run --project .ai-config python tools/check.py quick
+# Python 项目里如果本来就把这些装进了自己的 dev 组,直接 `uv run python tools/check.py`
+# 也行,两条路都通。
+#
+# 语言相关的工具(ruff/basedpyright/import-linter/radon/vulture/deptry/pytest)只在项目
+# 的 project_model 声明了 python 时才会被调用,见 registry 里各工具的 languages 字段。
+[project]
+name = "ai-config-gates"
+version = "0"
+requires-python = ">=3.11"
+dependencies = [
+    # 闸本体(任何语言的项目都要)
+    "pydantic>=2.7.0",
+    "pathspec>=0.12.1",
+    "pyyaml>=6.0.0",
+    # 跨语言检查器
+    "detect-secrets>=1.5.0",
+    "semgrep>=1.133.0",
+    "pre-commit>=4.6.0",
+    # Python 专属检查器:未声明 python 的项目不会调用它们,但装着无害且便于切换
+    "ruff>=0.15.13",
+    "basedpyright>=1.38.2",
+    "import-linter>=2.0",
+    "grimp>=3.0",
+    "radon>=6.0.1",
+    "vulture>=2.14",
+    "deptry>=0.23.0",
+    "pip-audit>=2.7.0",
+    "pytest>=8.0.0",
+]
+
+[tool.uv]
+package = false

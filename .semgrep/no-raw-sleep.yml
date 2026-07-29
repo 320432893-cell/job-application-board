@@ -1,0 +1,13 @@
+rules:
+  - id: no-raw-time-sleep
+    message: "非测试代码禁止裸用 time.sleep()；外部状态等待应改用轮询/显式等待。业务确需固定等待（如被测系统超时本身）时，紧邻 sleep 注释业务原因后可忽略本告警。"
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test/**"
+        - "**/test_*.py"
+        - "**/*_test.py"
+        - "**/conftest.py"
+    pattern: time.sleep(...)

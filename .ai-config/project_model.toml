@@ -1,0 +1,99 @@
+# job-application-board 的校准模型:React 19 + Vite + antd,纯 TS/TSX,无 Python。
+[metadata]
+version = 1
+governance_mode = "managed"
+architecture = "modular-monolith"
+
+# 只声明这个项目真有的语言。框架的 Python 侧判据因此全部空转,不是被关掉。
+[[languages]]
+id = "typescript"
+suffixes = [".ts", ".tsx"]
+include_globs = ["src/**/*.ts", "src/**/*.tsx"]
+
+[governance]
+# 接管态:历史债只登记不放大。三份基线出厂都是空的——这个项目没有 Python 债,
+# TS 侧的债要等 eslint/knip 接进来才会有。
+managed_baselines = [
+    "config/oversized.baseline.json",
+    "config/complexity.baseline.json",
+]
+inventory_violation_baseline = "config/inventory-violations.baseline.json"
+
+[ignore]
+patterns = [
+    ".git/**",
+    ".cache/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "**/__pycache__/**",
+    ".venv/**",
+    "**/.venv/**",
+]
+
+[architecture]
+# 组件按 board/offer/layout/... 分组,把组当作 feature:跨组引用应经该组的 index.ts。
+# 现在项目里还没有 index.ts,所以这条判据会告诉我们哪里跨组直连了——那是真实发现。
+feature_root = "src/components"
+cross_feature_entrypoint = "index.ts"
+
+[[members]]
+id = "app"
+root = "src"
+description = "React 应用本体"
+source_roots = ["src"]
+
+[[entrypoints]]
+id = "vite-entry"
+kind = "other"
+member = "app"
+file = "src/main.tsx"
+module = "main"
+
+[tooling]
+fixed_quality_traits = ["quality_fixed"]
+formal_traits = ["formal_like"]
+# 这个项目没有测试目录,所以不声明 test_like——声明了却没有 zone 用,元闸会当作悬空 trait 拦下。
+support_traits = ["support_like"]
+test_traits = []
+informal_traits = ["ephemeral"]
+inactive_traits = []
+package_root_traits = ["runtime_importable"]
+entrypoint_traits = ["entrypoint"]
+devtools_dir = "devtools"
+
+[[zones]]
+id = "formal"
+traits = ["formal_like", "runtime_importable", "quality_fixed"]
+dirs = ["src/components", "src/pages", "src/store", "src/router", "src/utils", "src/types", "src/constants", "src/data"]
+files = ["src/App.tsx"]
+import_roots = ["src"]
+may_import_zones = ["formal"]
+
+[[zones]]
+id = "entrypoint"
+traits = ["entrypoint", "runtime_importable", "formal_like", "quality_fixed"]
+dirs = []
+files = ["src/main.tsx"]
+import_roots = []
+may_import_zones = ["formal"]
+
+[[zones]]
+id = "support"
+traits = ["support_like"]
+dirs = ["tools", ".ai-config/tools", "devtools"]
+files = []
+import_roots = ["tools"]
+may_import_zones = ["support"]
+
+[[zones]]
+id = "informal"
+traits = ["ephemeral"]
+dirs = ["probes"]
+files = []
+import_roots = []
+may_import_zones = ["formal", "informal"]
+
+[contracts]
+contract_files = [".ai-config/**", "package.json", "tsconfig*.json", "vite.config.ts", "eslint.config.js"]
+dependency_files = ["package.json", "package-lock.json"]

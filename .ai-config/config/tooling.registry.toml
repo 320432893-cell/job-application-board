@@ -1,0 +1,689 @@
+# Tooling contract registry.
+# Human use: read this file to see which tool owns which mechanical check.
+# AI/CI use: .ai-config/tools/check_rule_tool_contracts.py verifies these contracts.
+
+[metadata]
+version = 1
+owner_rule = ".ai-config/AGENTS.md"
+# 住在 .ai-config/ 而不是 docs/:工具层的文档归工具层自己的命名空间,接管脚本刻意不写项目的 docs/,
+# 放在 docs/ 就会变成"受管清单里断言了一个接管时根本不会落地的路径"。
+human_doc = ".ai-config/TOOLING_CONTRACTS.md"
+checker = ".ai-config/tools/check_rule_tool_contracts.py"
+unified_entrypoint = "tools/check.py"
+changed_event_kinds = ["python", "source", "ruff_python", "code", "contract", "backend_contract", "test"]
+
+[metadata.capability_cli_owners]
+basedpyright = "basedpyright"
+deptry = "deptry"
+detect-secrets-hook = "detect-secrets"  # pragma: allowlist secret  (CLI 名不是密钥;Secret Keyword 检测器对 key 含 "secret" 的赋值假阳)
+lint-imports = "import-linter"
+pip-audit = "pip-audit"
+pytest = "pytest"
+radon = "radon"
+ruff = "ruff-check"
+semgrep = "semgrep"
+vulture = "vulture"
+
+[metadata.capability_cli_adapters]
+radon = ["complexity"]
+
+[[tools]]
+id = "python-compile"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "syntax-compile"
+kind = "python-stdlib"
+purpose = "Fast syntax/importability-adjacent smoke check by byte-compiling code_layout code dirs."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/check.py", "tools/tooling_layout.py"]
+pre_commit_hook = "python-compile"
+entrypoint_commands = ["uv run python -m compileall -q {all_code_paths}"]
+changed_when = ["python"]
+stages = ["quick", "ci", "cleanup"]
+scope = "Python files under code_layout.fixed_quality_dirs + support_dirs."
+boundary = "Only catches syntax and bytecode compilation failures; it does not replace tests, typing, or runtime checks."
+
+[[tools]]
+id = "pre-commit-basic-hooks"
+fixture_exempt = true
+fixture_exempt_reason = "第三方 hygiene 捆绑,只经 pre-commit 执行,check.py 里没有对应 item 可单独调用。"
+kind = "pre-commit-hook-bundle"
+purpose = "Repository hygiene checks from pre-commit-hooks: large files, JSON/YAML/TOML syntax, EOF newline, and trailing whitespace."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".pre-commit-config.yaml"]
+pre_commit_hooks = [
+    "check-added-large-files",
+    "check-json",
+    "check-yaml",
+    "check-toml",
+    "end-of-file-fixer",
+    "trailing-whitespace",
+]
+scope = "Generic repository hygiene checks maintained by the external pre-commit-hooks package."
+boundary = "Mechanical file hygiene only; ownership stays in pre-commit config, not project semantics."
+
+[[tools]]
+id = "rule-tool-contracts"
+capability_id = "tooling-contracts"
+kind = "project-static-tool"
+purpose = "Validate AI rules, tool registry, static rules, CI, and pre-commit wiring contracts."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/tools/check_rule_tool_contracts.py", ".ai-config/tools/rule_tool_registry_contracts.py", ".ai-config/config/tooling.registry.toml", ".ai-config/project_model.toml", ".gitignore", "tools/check.py", "tools/check_changed.py", "tools/project_model.py", "tools/tooling_layout.py", "tools/tooling_registry.py", "tools/inventory.py", "tools/evidence_extractors.py", "tools/project_discovery.py", "tools/project_bootstrap.py", "tools/stage_packet.py", "tools/subagent_review_packet.py"]
+pre_commit_hook = "rule-tool-contracts"
+entrypoint_commands = ["uv run python .ai-config/tools/check_rule_tool_contracts.py"]
+changed_when = ["python", "source", "contract"]
+stages = ["quick", "ci", "cleanup"]
+scope = "AI rule files, tool registry, .gitignore artifact hygiene, Semgrep rulesets, CI, pre-commit trigger regex, and deleted-rule stale references."
+boundary = "Mechanical contract validation only; it does not decide whether a rule or tool policy is desirable."
+
+[[tools]]
+id = "project-bootstrap"
+capability_id = "project-bootstrap"
+kind = "project-static-tool"
+purpose = "Bootstrap project adoption: build an evidence-only file/reference map before normal stage and cleanup gates."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/inventory.py", "tools/evidence_extractors.py", "tools/project_bootstrap.py", ".ai-config/config/tooling.registry.toml"]
+entrypoint_commands = ["uv run python tools/project_bootstrap.py build"]
+stages = ["bootstrap"]
+scope = "Repository files after project_model.ignore pruning; extracts generic file reference edges from small text/code files."
+boundary = "Evidence packet only: it proposes project_model calibration inputs but never approves identity or blocks changes."
+
+[[tools]]
+id = "inventory-closure"
+capability_id = "inventory-closure"
+kind = "project-static-tool"
+purpose = "Full cleanup/CI inventory closure: block parse errors, unclassified Python files, and declared-zone import-policy violations."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/inventory.py", ".ai-config/config/tooling.registry.toml"]
+entrypoint_commands = ["uv run python tools/inventory.py check"]
+stages = ["ci"]
+scope = "All Python files matched by project_model.python.include_globs, excluding project_model.ignore.patterns."
+boundary = "Declared-model mechanical inventory only; every non-ignored Python file must have a zone. It does not decide whether a declared zone is semantically appropriate."
+
+[[tools]]
+id = "inventory-closure-changed"
+capability_id = "inventory-closure"
+kind = "project-static-tool"
+stage_gate = "identity"
+enforcement = "blocking"
+changed_adapter = true
+parent_tool = "inventory-closure"
+cleanup_replacement = "model-health"
+purpose = "Changed-file inventory closure for stage: block changed Python files with no zone, changed modeled code importing unmodeled Python, and changed import-policy violations."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/inventory.py", ".ai-config/config/tooling.registry.toml"]
+entrypoint_commands = ["uv run python tools/inventory.py check --scope changed"]
+changed_when = ["python"]
+stages = ["quick", "stage"]
+scope = "Changed, staged, and untracked Python files matched by project_model.python.include_globs."
+boundary = "Fast stage closure only; full import drift remains in cleanup model-health; orphan-tool hints belong to cleanup discovery evidence."
+
+[[tools]]
+id = "model-health"
+capability_id = "inventory-closure"
+kind = "project-static-tool"
+purpose = "Full cleanup owner for inventory closure and project_model health: block closure violations, then audit required review metadata and trait-based zone pressure."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/inventory.py"]
+entrypoint_commands = ["uv run python tools/inventory.py health"]
+stages = ["cleanup"]
+scope = "Full Python inventory plus project_model zone metadata."
+boundary = "Runs the same mechanical closure as inventory-closure before metadata health; it does not decide whether a zone is architecturally acceptable."
+
+[[tools]]
+id = "project-discovery-changed"
+capability_id = "project-discovery"
+kind = "project-static-tool"
+stage_gate = "review-material"
+enforcement = "material"
+changed_adapter = true
+parent_tool = "project-discovery"
+purpose = "Changed-scope review evidence: surface changed unmodeled structures, import traces, and entrypoint-like hints without turning guesses into blockers."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/inventory.py", "tools/evidence_extractors.py", "tools/project_discovery.py", ".ai-config/config/tooling.registry.toml"]
+entrypoint_commands = ["uv run python tools/project_discovery.py check --scope changed"]
+changed_when = ["python", "source"]
+stages = ["stage"]
+scope = "Changed, staged, and untracked Python files plus inventory-derived import evidence."
+boundary = "Evidence packet only for heuristic discovery; hard blocking belongs to inventory/model closure and explicit import-policy facts."
+
+[[tools]]
+id = "project-discovery"
+capability_id = "project-discovery"
+kind = "project-static-tool"
+purpose = "Full cleanup review evidence: surface unmodeled code islands, embedded projects, orphan check tools, temp-as-weight-bearing, and stale declarations."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/inventory.py", "tools/evidence_extractors.py", "tools/project_discovery.py", ".ai-config/config/tooling.registry.toml"]
+entrypoint_commands = ["uv run python tools/project_discovery.py check"]
+stages = ["cleanup"]
+scope = "Full repository inventory matched by project_model.python.include_globs, excluding project_model.ignore.patterns."
+boundary = "Heuristic findings are evidence-only for subagents; only explicit model/fact violations may be critical, and the tool never writes project_model."
+
+[[tools]]
+id = "stage-packet"
+capability_id = "review-packet"
+kind = "project-static-tool"
+stage_gate = "review-material"
+enforcement = "material"
+purpose = "Build a structured stage review packet for contract, dependency, entrypoint, public API, delete/rename, and cross-zone risks."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/stage_packet.py", "tools/inventory.py"]
+entrypoint_commands = ["uv run python tools/stage_packet.py build"]
+stages = ["stage", "cleanup"]
+scope = "Changed, staged, and untracked files plus inventory-derived import and public-symbol facts."
+boundary = "Material packet only; it reports risk flags but does not approve or reject semantic design choices."
+
+[[tools]]
+id = "subagent-review-stage"
+capability_id = "subagent-review"
+kind = "project-static-tool"
+stage_gate = "agent-review"
+enforcement = "material"
+purpose = "Generate declared stage subagent review prompts from project_model, inventory, and stage packet."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/subagent_review_packet.py", "tools/tooling_registry.py", "tools/inventory.py", "tools/evidence_extractors.py", "tools/project_bootstrap.py", "tools/project_discovery.py", "tools/stage_packet.py"]
+entrypoint_commands = ["uv run python tools/subagent_review_packet.py stage"]
+stages = ["stage"]
+cleanup_replacement = "subagent-review-cleanup"
+scope = "Writes .cache/subagent-reviews/stage prompts; human/Codex uses these to spawn read-only subagents."
+boundary = "Creates review packets only; it does not approve, reject, or modify code."
+
+[[tools]]
+id = "changed"
+capability_id = "changed-dispatch"
+kind = "project-static-tool"
+purpose = "Automatically run fixed static checks and registered path triggers for changed, staged, and untracked code files."
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check.py"]
+entrypoint_commands = ["uv run python tools/check.py changed"]
+stages = ["changed"]
+scope = "Changed, staged, and untracked code files; path triggers decide special checks."
+boundary = "Uses local git state and may run broader fixed checks such as Semgrep/import-linter. Rule/tooling/pre-commit changes force contract checks; expensive or data-dependent checks stay path-triggered."
+
+[[tools]]
+id = "ruff-staged"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "python-lint"
+kind = "python-dev-tool"
+package = "ruff"
+purpose = "Run Ruff on staged Python files without autofix."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ruff.toml", ".pre-commit-config.yaml", "tools/check.py"]
+pre_commit_hook = "ruff-staged"
+entrypoint_commands = ["uv run ruff check --no-fix --force-exclude"]
+stages = ["quick"]
+scope = "Staged Python files."
+boundary = "Changed-file lint only; full lint and formatting are separate checks."
+
+[[tools]]
+id = "ruff-check"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "python-lint"
+kind = "python-dev-tool"
+package = "ruff"
+purpose = "Full Ruff lint check."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ruff.toml"]
+pre_commit_hook = "ruff-check"
+entrypoint_commands = ["uv run ruff check ."]
+stages = ["cleanup"]
+scope = "Repository Python lint scope configured by Ruff."
+boundary = "Lint only; formatting is a separate check."
+relaxed = true
+relaxed_reason = "模板默认把全量 ruff check 放在 cleanup，不默认阻塞普通阶段；旧项目常有 lint backlog。"
+reopen_when = "新项目或旧账清零后，把 `ruff-check` 升入 quick/ci。"
+
+[[tools]]
+id = "ruff-format-check"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "python-format"
+kind = "python-dev-tool"
+package = "ruff"
+purpose = "Full Ruff formatting check."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ruff.toml"]
+pre_commit_hook = "ruff-format"
+entrypoint_commands = ["uv run ruff format --check ."]
+stages = ["cleanup"]
+scope = "Repository Python format scope configured by Ruff."
+boundary = "Format check only; lint is a separate check."
+relaxed = true
+relaxed_reason = "模板默认把全量格式检查放在 cleanup，不默认阻塞普通阶段；旧项目常有格式 backlog。"
+reopen_when = "新项目或旧账清零后，把 `ruff-format-check` 升入 quick/ci。"
+
+[[tools]]
+id = "basedpyright"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "type-check"
+kind = "python-dev-tool"
+package = "basedpyright"
+purpose = "Type, signature, optionality, and static Python type consistency checks."
+rule = ".ai-config/AGENTS.md"
+configured_in = ["pyproject.toml"]
+pre_commit_hook = "basedpyright"
+entrypoint_commands = ["uv run basedpyright"]
+stages = ["cleanup"]
+scope = "Project-configured Python package scope; keep basedpyright available but non-blocking until the project opts into typed blocking."
+boundary = "Does not replace tests, runtime behavior checks, or script/test typing outside the configured scope."
+relaxed = true
+relaxed_reason = "模板默认把 basedpyright 作为可跑的类型闸，但不默认阻塞提交；不同项目类型覆盖面差异很大。"
+reopen_when = "项目明确 Python 包边界且 basedpyright 无残留 error 后，把它加进 ci stage 并去掉 relaxed。"
+
+[[tools]]
+id = "import-linter"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "import-architecture"
+kind = "python-dev-tool"
+package = "import-linter"
+stage_gate = "dependency"
+enforcement = "blocking"
+purpose = "Layered import architecture contracts."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".importlinter"]
+required_paths = [".importlinter"]
+trigger_on_configured_in = true
+pre_commit_hook = "import-linter"
+entrypoint_commands = ["uv run lint-imports --config .importlinter --no-cache"]
+changed_when = ["ruff_python"]
+stages = ["quick", "stage", "ci", "cleanup"]
+boundary = "Checks import direction only; does not prove runtime architecture quality."
+
+[[tools]]
+id = "detect-secrets"
+capability_id = "secret-scan"
+kind = "python-dev-tool"
+package = "detect-secrets"
+purpose = "Secret leakage scan."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".pre-commit-config.yaml"]
+pre_commit_hook = "detect-secrets"
+# detect-secrets-hook(不是 scan)：scan 只吐 baseline JSON、恒退 0；hook 才会在发现密钥时退非 0。
+# hook 不递归目录，所以必须用 {scannable_files} 展开成显式文件清单。
+# --exclude-files 与 .pre-commit-config.yaml 的 exclude 保持同一集合。
+entrypoint_commands = ["uv run detect-secrets-hook --exclude-files '^(uv\\.lock|\\.ai-config/config/settings\\.json|gates/.*)$' {scannable_files}"]
+stages = ["ci", "cleanup"]
+boundary = "Does not decide whether a found value is safe to publish; human review is still required."
+
+[[tools]]
+id = "semgrep"
+capability_id = "security-pattern-scan"
+kind = "python-dev-tool"
+package = "semgrep"
+purpose = "Project static guardrails that are too specific for Ruff."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".semgrep"]
+trigger_on_configured_in = true
+pre_commit_hook = "semgrep"
+# --error 是必须的：没有它 semgrep 只报告不改退出码(WARNING severity 恒退 0)，闸看着在跑其实拦不住。
+entrypoint_commands = ["uv run semgrep --error --disable-version-check --metrics=off --config .semgrep --no-git-ignore {all_code_paths} .ai-config"]
+changed_when = ["code"]
+stages = ["quick", "ci", "cleanup"]
+scope = "code_layout fixed/support dirs plus .ai-config."
+boundary = "Use for stable static patterns only; do not encode broad business semantics."
+
+[[tools]]
+id = "dependency-change-approval"
+capability_id = "dependency-approval"
+kind = "project-static-tool"
+purpose = "Block staged dependency or lock-file changes until the user has explicitly approved the dependency/toolchain impact."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".pre-commit-config.yaml", "tools/check.py"]
+pre_commit_hook = "dependency-change-approval"
+entrypoint_commands = ["uv run python tools/check.py dependency-change-approval"]
+stages = ["cleanup"]
+scope = "Staged files matching project_model.contracts.dependency_files. Override after discussion with ONCALL_ALLOW_DEPENDENCY_CHANGE=1."
+boundary = "Checks that approval was made explicit; it cannot judge whether the dependency decision is good."
+
+[[tools]]
+id = "pip-audit"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+fixture_exempt = true
+fixture_exempt_reason = "违规存在于依赖世界(需要一个真带 CVE 的依赖),无法用本仓代码样本表达;其有效性由 lock 与漏洞库保证。"
+capability_id = "dependency-vulnerability"
+kind = "python-dev-tool"
+package = "pip-audit"
+purpose = "Dependency vulnerability audit."
+rule = ".ai-config/AGENTS.md"
+configured_in = ["pyproject.toml"]
+pre_commit_hook = "pip-audit"
+# 定向忽略 3 个 mcp 传递依赖漏洞,而不是把整道安全闸调成 relaxed(那会连新漏洞一起放过)。
+# 原因:mcp 被 semgrep 的解析树钉在 1.23.3,直接 --upgrade-package 移不动;修复版 1.27.2/1.28.1
+# 拉不进来。清除条件(可判定):`uv lock --upgrade-package mcp` 后 uv.lock 里 mcp >= 1.28.1,
+# 即把这三个 --ignore-vuln 删掉重跑 pip-audit 应为绿。登记日期 2026-07-27。
+entrypoint_commands = ["uv run pip-audit --skip-editable --ignore-vuln PYSEC-2026-3481 --ignore-vuln PYSEC-2026-3482 --ignore-vuln PYSEC-2026-3483"]
+stages = ["ci", "cleanup"]
+boundary = "Vulnerability triage still needs human decision for ignore, upgrade, or mitigation."
+
+[[tools]]
+id = "pytest"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+fixture_exempt = true
+fixture_exempt_reason = "它本身就是测试套件,反向样本会与被测代码循环;测试的有效性由 test-meta 与 CI 红灯保证。"
+capability_id = "test-suite"
+kind = "python-dev-tool"
+package = "pytest"
+purpose = "Unit and integration tests."
+rule = ".ai-config/AGENTS.md"
+configured_in = ["pyproject.toml"]
+entrypoint_commands = ["uv run pytest {test_dirs}"]
+stages = ["ci", "cleanup"]
+scope = "Stable automated tests under tests/. Script-style validation under scripts/ remains manual or changed-file scoped until it is refactored into stable tests."
+boundary = "CI runs the stable tests/ suite only; service-dependent or data-preparation scripts must not be implied by the default pytest contract."
+
+[[tools]]
+id = "radon"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "code-complexity"
+kind = "python-dev-tool"
+package = "radon"
+purpose = "Maintainability-index advisory scan; CC ownership belongs to the complexity ratchet."
+rule = ".ai-config/rules/engineering/code.index.md"
+configured_in = ["pyproject.toml"]
+entrypoint_commands = ["uv run radon mi {fixed_quality_paths} -s"]
+stages = ["deep", "cleanup"]
+scope = "Use MI for 80/20 maintainability triage in code_layout.fixed_quality_dirs; CC≥21 is collected once by `complexity`."
+boundary = "MI suggests discussion; it does not mandate a refactor. CC thresholds are intentionally not recomputed here."
+
+[[tools]]
+id = "vulture"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "dead-code"
+kind = "python-dev-tool"
+package = "vulture"
+purpose = "Likely dead code and unused symbol scan."
+rule = ".ai-config/rules/engineering/code.index.md"
+configured_in = ["pyproject.toml"]
+entrypoint_commands = ["uv run vulture {fixed_quality_paths} --min-confidence 80"]
+stages = ["deep", "cleanup"]
+scope = "Use for cleanup discussion in code_layout.fixed_quality_dirs; old projects may have dynamic entry points and compatibility shims."
+boundary = "Never delete solely from Vulture output without checking runtime entry points and tests."
+
+[[tools]]
+id = "deptry"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "dependency-hygiene"
+kind = "python-dev-tool"
+package = "deptry"
+purpose = "Dependency hygiene: unused, missing, and transitive dependency drift."
+rule = ".ai-config/rules/engineering/code.index.md"
+configured_in = ["pyproject.toml", "tools/check.py"]
+entrypoint_commands = ["uv run deptry . --per-rule-ignores DEP004=yaml"]
+stages = ["deep", "cleanup"]
+scope = "Use for dependency debt triage."
+boundary = "Dynamic imports, optional providers, and script-only dependencies need human review; yaml is a dev-only .ai-config tooling dependency."
+relaxed = true
+relaxed_reason = "模板工具模块通过 sys.path 复用同仓工具，deptry 会把这些本地工具导入报成依赖缺失；先作为 cleanup 债务体检，不阻塞迁移。"
+reopen_when = "deptry 配置能区分同仓工具导入与真实三方依赖漂移后，清零 DEP001/DEP004 并升为 blocking。"
+
+[[tools]]
+id = "module-boundary"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "module-boundary"
+kind = "project-static-tool"
+purpose = "检查 Python 文件职责声明块 + 文件行数硬闸；全量模式用于 cleanup/deep 扫描，changed 阻塞入口由 module-boundary-changed 承接。"
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_module_boundary.py", "tools/check.py", ".ai-config/config/oversized.baseline.json"]
+entrypoint_commands = ["uv run python tools/check_module_boundary.py"]
+ci_commands = ["uv run python tools/check_module_boundary.py --ci"]
+stages = ["ci", "deep", "cleanup"]
+scope = "全量覆盖 code_layout.fixed_quality_dirs + 非测试 support_dirs 的 Python 文件，排除 __init__.py、conftest.py 和测试文件；膨胀行数检查另对 test_dirs 按更高阈值生效。"
+boundary = "全量模式行数仅 WARNING、兼容旧字段名；不校验注释内容准确性。native/managed 的 formal_like 文件一旦本次触碰即要求当前四项职责声明；职责注释全量补全仍按 relaxed(见下)。"
+relaxed = true
+relaxed_reason = "relaxed 仅指『职责注释全量补全』：存量 22 文件尚无注释，full-scan 保持 manual 不阻塞；行数硬闸与新文件四项声明已是 changed 模式阻塞，不在 relaxed 范围。"
+reopen_when = "存量文件职责注释补全后升为 pre-commit WARNING blocking。"
+
+[[tools]]
+id = "module-boundary-changed"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "module-boundary"
+kind = "project-static-tool"
+stage_gate = "reversibility"
+enforcement = "blocking"
+changed_adapter = true
+parent_tool = "module-boundary"
+purpose = "Changed-file module boundary check."
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_module_boundary.py", "tools/check.py", ".ai-config/config/oversized.baseline.json"]
+entrypoint_commands = ["uv run python tools/check_module_boundary.py --changed"]
+changed_when = ["python"]
+stages = ["stage"]
+scope = "Changed Python files."
+boundary = "Changed mode only; full module boundary check is `module-boundary`."
+
+[[tools]]
+id = "backend-contracts"
+capability_id = "backend-contracts"
+kind = "project-static-tool"
+purpose = "Run explicitly declared backend API schema, Alembic migration, and health contracts during full maintenance."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/check_backend_contracts.py"]
+entrypoint_commands = ["uv run python tools/check_backend_contracts.py --scope full"]
+stages = ["ci", "cleanup"]
+scope = "Only [contracts] declarations in project_model; no declaration is a no-op."
+boundary = "Does not infer FastAPI/Alembic, start services, access a developer database, or update contract snapshots. Each declared command owns its isolated environment."
+
+[[tools]]
+id = "backend-contracts-changed"
+capability_id = "backend-contracts"
+kind = "project-static-tool"
+stage_gate = "dependency"
+enforcement = "blocking"
+changed_adapter = true
+parent_tool = "backend-contracts"
+purpose = "Run only declared backend contracts whose source_globs or project model changed."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/check_backend_contracts.py"]
+entrypoint_commands = ["uv run python tools/check_backend_contracts.py --scope changed"]
+changed_when = ["backend_contract"]
+stages = ["stage"]
+scope = "Changed paths matched by each declared API, database, or health contract source_globs."
+boundary = "Adapter only; the full owner runs all declared contracts during cleanup."
+
+[[tools]]
+id = "test-meta"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "test-metadata"
+kind = "project-static-tool"
+purpose = "检查 tests/ 下测试文件是否声明生命周期、业务场景、依赖环境、运行方式和 oracle 输出形状；本次新增/改动测试缺失会阻塞，存量只 WARNING。"
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check.py"]
+entrypoint_commands = ["uv run python tools/check.py test-meta"]
+changed_when = ["test"]
+stages = ["cleanup"]
+scope = "pytest testpaths 下匹配 python_files 模式的测试文件。"
+boundary = "只检测测试复现元信息和 oracle 输出标记是否存在，不校验内容是否准确，也不运行测试。"
+relaxed = true
+relaxed_reason = "存量测试尚未补全业务场景/用时声明，先保持 manual WARNING 不阻塞；新测试由 AGENTS.md §3 规则约束。"
+reopen_when = "存量测试补全业务场景与用时声明后升为 pre-commit WARNING blocking。"
+
+[[tools]]
+id = "lifecycle"
+capability_id = "lifecycle"
+kind = "project-static-tool"
+purpose = "身份标注 forcing：非正式区(scripts/devtools/tmp/probes)文件缺 # lifecycle: 身份标注、或标 devtool 却不在 devtools/。全量模式 sweep + 存量挂 baseline 棘轮(只减不增)；changed 阻塞入口由 lifecycle-changed 承接。expires 日期/superseded 标记那套已删(理想情况设计·0 使用)。"
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_lifecycle.py", "tools/check.py", ".pre-commit-config.yaml"]
+entrypoint_commands = ["uv run python tools/check_lifecycle.py"]
+stages = ["ci", "cleanup"]
+scope = "code_layout.informal_zone_dirs Python 文件；排除 ignored/support/.ai-config/scratch 等。"
+boundary = "只查身份标注是否存在 + devtool 是否住对地方；不删文件、不归档。changed 阻塞口径见 lifecycle-changed。旧码清理交「取代纪律」的状态推导(死码+重复块+晋升门)，不再靠 expires/superseded 标记。"
+
+[[tools]]
+id = "lifecycle-changed"
+capability_id = "lifecycle"
+kind = "project-static-tool"
+stage_gate = "identity"
+enforcement = "blocking"
+changed_adapter = true
+parent_tool = "lifecycle"
+purpose = "Changed-file lifecycle identity-tag check."
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_lifecycle.py", "tools/check.py", ".pre-commit-config.yaml"]
+pre_commit_hook = "lifecycle"
+entrypoint_commands = ["uv run python tools/check_lifecycle.py --changed"]
+changed_when = ["python"]
+stages = ["stage"]
+scope = "Changed files in non-formal zones."
+boundary = "Changed mode only; full lifecycle sweep is `lifecycle`."
+
+[[tools]]
+id = "debt"
+capability_id = "debt-ratchet"
+kind = "project-static-tool"
+stage_gate = "drift"
+enforcement = "blocking"
+purpose = "放行登记校验（门禁）+ 健康度汇总。校验每条 relaxed 放行有 ①relaxed_reason ②可判定 reopen_when（禁含糊词『暂时/以后/待定』），违规非0；并汇总生命周期/回归债与各检查通过率（读 .cache/check-runs.jsonl）。"
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check.py"]
+entrypoint_commands = ["uv run python tools/check.py debt"]
+stages = ["stage", "ci", "cleanup"]
+scope = "校验 registry 里 relaxed 工具 + relaxed semgrep_rulesets 的放行登记；并聚合 check_lifecycle 输出 + 通过率。"
+boundary = "门禁只卡放行登记是否带原因 + 可判定清除条件；健康度汇总部分(债数/通过率)仍只读，不评判规则是否该删——那是人看趋势后的决策。"
+
+[[tools]]
+id = "new"
+kind = "project-static-tool"
+purpose = "生成模块化单体骨架（feature/api/models/use_cases/ports、entrypoint 或测试），不覆盖既有文件。"
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/check.py", "tools/tooling_layout.py"]
+entrypoint_commands = ["uv run python tools/check.py new"]
+utility = true
+scope = "从 project_model 派生 feature、entrypoint、test 目录；feature 默认配回归测试。"
+boundary = "只生成骨架，不写业务逻辑、不覆盖已存在文件；跨 feature 依赖只经 project_model 的 architecture.cross_feature_entrypoint，AI 仍须填实际职责与断言。"
+
+[[tools]]
+id = "complexity"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "file-complexity"
+kind = "project-static-tool"
+purpose = "函数圈复杂度硬闸：冻结存量 CC≥21(radon rank D+) 的复杂块数(计数型棘轮·只减不增)，新增/变多即阻塞；<21(rank C) 仍归 radon deep 建议不阻塞。"
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_complexity.py", "tools/check.py", ".ai-config/config/complexity.baseline.json"]
+entrypoint_commands = ["uv run python tools/check_complexity.py"]
+stages = ["ci", "cleanup"]
+scope = "code_layout.fixed_quality_dirs 的函数/方法圈复杂度(radon cc -j)。"
+boundary = "只卡 CC≥21 的块数是否超基线；不重构、不评判某处复杂是否正当、不管 <21 的(那归 deep 建议)。"
+
+[[tools]]
+id = "dup-symbol"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+fixture_exempt = true
+fixture_exempt_reason = "全量版按设计只提示不拦(词法判据跨模块易误报);阻塞由 dup-symbol-changed 承担并已配样本。"
+capability_id = "symbol-collision"
+kind = "project-static-tool"
+purpose = "顶层符号碰撞检测：全量只提示历史同名/近名；stage 只审本次新增的名字，完全同名阻塞、近名交子 agent/人复核。词法信号不替代语义判断。"
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_dup_symbol.py", "tools/check.py"]
+entrypoint_commands = ["uv run python tools/check_dup_symbol.py"]
+stages = ["ci", "cleanup"]
+scope = "全量扫描 code_layout.formal_dirs 顶层 def/class 名(排除 dunder/通用入口名/<4 字符)。"
+boundary = "全量只报名字/词根碰撞(WARN 不阻塞)；changed 仅对新增完全同名阻塞，近名只给复核材料。不判取代/重复、不删、不查类内方法名、不抓零名字重叠的语义重复(交子agent复核/人)。"
+
+[[tools]]
+id = "dup-symbol-changed"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "symbol-collision"
+kind = "project-static-tool"
+stage_gate = "double-source"
+enforcement = "blocking"
+changed_adapter = true
+parent_tool = "dup-symbol"
+purpose = "新增顶层符号碰撞检查：完全同名阻塞，近名复核。已接管旧项目只因触碰旧文件不会被历史名字拦住。"
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_dup_symbol.py", "tools/check.py"]
+entrypoint_commands = ["uv run python tools/check_dup_symbol.py --changed"]
+changed_when = ["python"]
+stages = ["stage"]
+scope = "Changed formal Python files 中相对 HEAD 新增的顶层 def/class。"
+boundary = "Changed mode only; exact collision blocks, near-name collision is review material; full duplicate-symbol scan is `dup-symbol`."
+
+[[semgrep_rulesets]]
+path = ".semgrep/no-raw-sleep.yml"
+owner_rule = ".ai-config/AGENTS.md"
+purpose = "Non-test Python code should not use raw time.sleep(); prefer polling/explicit waits, annotate business-required fixed waits."
+
+[[tools]]
+id = "import-cycles-changed"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "import-cycles"
+kind = "project-static-tool"
+stage_gate = "dependency"
+enforcement = "blocking"
+changed_adapter = true
+parent_tool = "import-cycles"
+purpose = "Changed-scope 模块级 import 图找环：只阻断涉及本次改动模块的循环依赖簇。"
+rule = ".ai-config/rules/review/review.index.md"
+configured_in = ["tools/import_cycles.py"]
+entrypoint_commands = ["uv run python tools/import_cycles.py --scope changed"]
+changed_when = ["python"]
+stages = ["stage"]
+scope = "Full inventory quality_fixed import graph, reported only when a cycle touches changed Python modules."
+boundary = "阶段闸只阻断本次改动相关环；旧环由 cleanup 的 full import-cycles 处理。"
+
+[[tools]]
+id = "import-cycles"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "import-cycles"
+kind = "project-static-tool"
+purpose = "Full 模块级 import 图找环，补 import-linter independence 查不到的全图任意环。"
+rule = ".ai-config/rules/review/review.index.md"
+configured_in = ["tools/import_cycles.py"]
+entrypoint_commands = ["uv run python tools/import_cycles.py"]
+stages = ["ci", "cleanup"]
+scope = "All inventory quality_fixed Python files；报循环依赖簇。"
+boundary = "报环;谁让步=边界重划,人裁。"
+
+[[tools]]
+id = "encapsulation"
+languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
+capability_id = "encapsulation"
+kind = "project-static-tool"
+stage_gate = "reversibility"
+enforcement = "blocking"
+purpose = "未来拆文件/拆包安全闸:禁偷用私有/内部模块；相对 import 由 Ruff TID252 检查。"
+rule = ".ai-config/rules/engineering/code.index.md"
+configured_in = ["tools/check_encapsulation.py", "tools/check.py"]
+entrypoint_commands = ["uv run python tools/check_encapsulation.py"]
+stages = ["stage", "ci", "cleanup"]
+scope = "code_layout.fixed_quality_dirs 的 private/internal import；Ruff 另检查全部改动 Python 的相对 import。"
+boundary = "只管可明确证明的 import 越界；深 import、门面 __all__、顶层副作用等高噪提示已删除，交 cleanup 子 agent 按具体变更判断。"
+
+[[tools]]
+id = "subagent-review-cleanup"
+capability_id = "subagent-review"
+kind = "project-static-tool"
+purpose = "Generate declared cleanup subagent review prompts from project_model, full inventory, and latest cleanup run facts."
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/project_model.toml", "tools/project_model.py", "tools/subagent_review_packet.py", "tools/tooling_registry.py", "tools/inventory.py", "tools/evidence_extractors.py", "tools/project_bootstrap.py", "tools/project_discovery.py", "tools/stage_packet.py"]
+entrypoint_commands = ["uv run python tools/subagent_review_packet.py cleanup"]
+stages = ["cleanup"]
+scope = "Writes .cache/subagent-reviews/cleanup prompts after cleanup checks; human/Codex uses these to spawn read-only subagents."
+boundary = "Creates review packets only; it does not approve, reject, or modify code."
+
+[[tools]]
+id = "gate-fixtures"
+capability_id = "gate-fixtures"
+kind = "project-static-tool"
+fixture_exempt = true
+fixture_exempt_reason = "本工具就是反向样本机制本身;它的有效性体现在对其他闸的判定上,自指样本无意义。"
+purpose = "Negative-fixture gate: plant each gates/*/tree sample into the repo and require the declared tools to exit non-zero; also require every blocking tool to own a sample."
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_gate_fixtures.py", "gates", ".ai-config/config/tooling.registry.toml"]
+entrypoint_commands = ["uv run python tools/check_gate_fixtures.py"]
+stages = ["ci", "cleanup"]
+scope = "Every gates/*/fixture.toml sample, run against its declared tool ids one tool at a time."
+boundary = "Only asserts exit codes, never output text; it does not judge whether a gate's criterion is the right one."
+
+[[tools]]
+id = "orphan-module"
+capability_id = "orphan-module"
+kind = "project-static-tool"
+stage_gate = "drift"
+enforcement = "blocking"
+purpose = "Zero-consumer gate: a module nobody imports must register expected consumer, a decidable clear-condition, and a date; otherwise it blocks."
+rule = ".ai-config/AGENTS.md"
+configured_in = ["tools/check_orphan_module.py", ".ai-config/config/orphans.baseline.json", ".ai-config/project_model.toml"]
+entrypoint_commands = ["uv run python tools/check_orphan_module.py"]
+changed_when = ["python"]
+stages = ["stage", "ci", "cleanup"]
+scope = "Modules with zero inbound imports, excluding declared entrypoints, registry CLI targets, test-zone files and __init__.py."
+boundary = "Module level only; symbol-level dead code stays with vulture/knip/deadcode. It never deletes anything—it forces a decision."

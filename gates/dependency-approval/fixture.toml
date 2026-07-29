@@ -1,3 +1,6 @@
 tools = ["dependency-change-approval"]
 violates = "暂存了依赖清单变更(新增 requirements.txt)但没有显式放行环境变量"
 stage = true
+# 这份样本种的是依赖清单,不是源码:可见性按 contracts.dependency_files 判,
+# 否则会被当成源码样本、拿源码 glob 去比对而误跳过。
+requires = "dependency"

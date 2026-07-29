@@ -12,22 +12,75 @@ parsing -- so fixtures do not rot when a tool changes its wording.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
 
+import baseline_policy
+import evidence_extractors as evidence
 import project_model
 import tooling_registry
 
 ROOT = Path(__file__).resolve().parents[1]
 GATES_DIR = ROOT / "gates"
 REGISTRY = ROOT / ".ai-config" / "config" / "tooling.registry.toml"
+COVERAGE_BASELINE = ROOT / ".ai-config" / "config" / "fixture-coverage.baseline.json"
+COVERAGE_FIELDS = ("reason", "clear_when", "registered")
 
 
 def load_registry() -> dict:
     return tomllib.loads(REGISTRY.read_text(encoding="utf-8"))
+
+
+def load_coverage_baseline() -> dict[str, dict]:
+    if not COVERAGE_BASELINE.exists():
+        return {}
+    try:
+        data = json.loads(COVERAGE_BASELINE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"[fixtures] 登记表无法解析:{COVERAGE_BASELINE}: {exc}") from exc
+    entries = data.get("entries", {})
+    return entries if isinstance(entries, dict) else {}
+
+
+def coverage_debt(required: dict[str, str], exercised: set[str]) -> list[str]:
+    """能拦人却没有一个样本真的跑过的闸 —— 未登记就红。
+
+    为什么口径是"真跑过"而不是"在某个 fixture.toml 里被点过名":样本会因为语言不适用、
+    或样本树不在本项目声明的源码范围里而跳过。按点名算,接管态项目会打出
+    "12 blocking tools covered",而其中 11 个的样本一次都没种下去——一句假的绿。
+
+    差额不直接红,而是走登记:红了项目自己也修不了(样本树写死在模板布局里),
+    但"没有牙的证据"必须是显式记账的。登记要写可判定的 clear_when,和其它棘轮一个规矩。
+    """
+    baseline, problems = load_coverage_baseline(), []
+    gaps = sorted(set(required) - exercised)
+    for tool in gaps:
+        entry = baseline.get(tool)
+        if entry is None:
+            problems.append(
+                f"`{tool}` 能拦人({required[tool]})但没有任何样本真的跑到它;"
+                f"要么让样本在本项目跑得起来,要么在 {baseline_policy.relative(COVERAGE_BASELINE)} "
+                f"登记 reason / clear_when(可判定) / registered(日期)"
+            )
+            continue
+        problems.extend(registration_problems(tool, entry))
+    for tool in sorted(set(baseline) - set(gaps)):
+        sys.stdout.write(f"[fixtures] `{tool}` 已有真跑到的样本,可从登记表删掉锁战果\n")
+    return problems
+
+
+def registration_problems(tool: str, entry: object) -> list[str]:
+    if not isinstance(entry, dict):
+        return [f"{tool}: 登记项必须是对象"]
+    problems = [f"{tool}: 登记缺 {field}" for field in COVERAGE_FIELDS if not str(entry.get(field, "")).strip()]
+    clear_when = str(entry.get("clear_when", "")).strip()
+    if clear_when and (hits := baseline_policy.vague_hits(clear_when)):
+        problems.append(f"{tool}: clear_when 含糊词 {hits}(要能判出真假,不是『以后/待定』)")
+    return problems
 
 
 def planted_names(fixture: Fixture) -> list[str]:
@@ -39,17 +92,28 @@ def planted_names(fixture: Fixture) -> list[str]:
 
 
 def fixture_in_scope(fixture: Fixture) -> bool:
-    """样本树必须落在本项目声明的源码范围里。
+    """样本种下去之后,本项目的闸看得见它吗?看不见就别断言"必须被拦住"。
 
-    样本的目录结构写死在模板里(src/project/features/…)。接管态项目的布局不同时,种下去的文件
-    连 inventory 都不收——闸扫不到它,"必须被拦住"的断言就稳定误红,红的还是个假问题。
-    判据直接用 inventory 收文件时的同一条:它看不见的东西,任何闸都拦不住。
-    没有 tree/ 的样本(纯 append/)不受这条约束。
+    样本树的路径写死在模板里(src/project/features/…)。接管态项目布局不同时,种下去的 .py
+    落在任何声明的范围之外,闸扫不到 → 稳定误红,红的还是个假问题。
+
+    可见性按样本文件的类别分:
+      源码类(path_kind = python/source)→ 必须落在 languages.include_globs 里;
+      依赖清单类 → 样本自己声明 requires = "dependency",按 contracts.dependency_files 判
+        (纯 TS 仓的清单是 package.json,种一份 requirements.txt 进去谁也不会看);
+      其余(文档、边车配置)→ 布局无关,一律跑。
+    只有需要的样本才写 requires,不是每个样本都背一个字段——判据能从文件类别推出来就别让人抄。
     """
     names = planted_names(fixture)
     if not names:
         return True
-    globs = project_model.source_include_globs(project_model.load_project_model())
+    model = project_model.load_project_model()
+    if fixture.requires == "dependency":
+        globs = list(model.contracts.dependency_files)
+    elif any(evidence.path_kind(name) in {"python", "source"} for name in names):
+        globs = project_model.source_include_globs(model)
+    else:
+        return True
     return any(project_model.path_matches(name, globs) for name in names)
 
 
@@ -86,9 +150,9 @@ def required_tools(registry: dict) -> dict[str, str]:
 class Fixture:
     """One bad sample plus the set of tools that must all reject it."""
 
-    def __init__(self, directory: Path, tools: list[str], violates: str, *, needs_index: bool) -> None:
+    def __init__(self, directory: Path, tools: list[str], violates: str, *, needs_index: bool, requires: str = "") -> None:
         self.directory, self.tools, self.violates = directory, tools, violates
-        self.needs_index = needs_index
+        self.needs_index, self.requires = needs_index, requires
 
     @property
     def tree(self) -> Path:
@@ -117,7 +181,10 @@ def load_fixtures() -> list[Fixture]:
         # 完备性仍然要求每个能拦人的工具至少出现在一个样本里,这里只是允许覆盖得更深。
         for tool in tools:
             claimed.setdefault(tool, []).append(spec_path)
-        fixtures.append(Fixture(spec_path.parent, tools, violates, needs_index=bool(spec.get("stage"))))
+        requires = str(spec.get("requires", "")).strip()
+        if requires not in {"", "dependency"}:
+            raise SystemExit(f"[fixtures] {spec_path} requires 只认 'dependency'(留空=按样本文件类别自动判)")
+        fixtures.append(Fixture(spec_path.parent, tools, violates, needs_index=bool(spec.get("stage")), requires=requires))
     return fixtures
 
 
@@ -208,14 +275,9 @@ def main() -> int:
     covered = covered_tools(fixtures)
     known = {str(tool.get("id", "")).strip() for tool in registry.get("tools", [])}
     failures: list[str] = []
+    exercised: set[str] = set()  # 真种下去、真跑过的工具。完备性只认它,不认"在某个 fixture.toml 里被点过名"。
 
     failures.extend(f"fixture targets unknown tool `{tool}`" for tool in sorted(covered - known))
-    failures.extend(
-        f"`{tool}` can block ({why}) but has no negative fixture; add it to a gates/*/fixture.toml "
-        f"`tools` list, or set fixture_exempt + fixture_exempt_reason in the registry"
-        for tool, why in sorted(required.items())
-        if tool not in covered
-    )
 
     declared = declared_languages()
     applicable = {
@@ -253,15 +315,19 @@ def main() -> int:
             uproot(created)
         for tool, code in sorted(results.items()):
             sys.stdout.write(f"[fixtures] {tool}: {'blocked' if code else 'LET IT THROUGH'} ({fixture.violates})\n")
+            exercised.add(tool)
             if code == 0:
                 failures.append(f"`{tool}` exited 0 on a sample that violates: {fixture.violates}")
 
+    failures.extend(coverage_debt(required, exercised))
     if failures:
         sys.stderr.write("[fixtures] negative-fixture gate failed:\n")
         for line in failures:
             sys.stderr.write(f"  - {line}\n")
         return 1
-    sys.stdout.write(f"[fixtures] {len(fixtures)} samples rejected by {len(covered)} tools; {len(required)} blocking tools covered.\n")
+    gaps = sorted(set(required) - exercised)
+    accounted = f",另有 {len(gaps)} 个已登记欠账(见 {baseline_policy.relative(COVERAGE_BASELINE)})" if gaps else ""
+    sys.stdout.write(f"[fixtures] {len(fixtures)} 个样本;{len(exercised)} 个阻塞闸真的被样本拦住过{accounted}。\n")
     return 0
 
 

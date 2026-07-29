@@ -1,0 +1,59 @@
+{
+  "reason": "反向样本覆盖欠账登记表:这个闸能拦人,但本项目里没有任何样本真的跑到过它。每条必须写清为什么跑不到,以及一个可判定的清除条件。",
+  "ratchet": "只减不增:样本一旦能在本项目真跑起来,就把登记删掉锁战果;新增未登记的欠账直接阻塞。",
+  "why_this_exists": "完备性口径只认『样本真的种下去、真的跑过』。按『在某个 fixture.toml 里被点过名』算的话,一个纯 TS 项目会打出『12 blocking tools covered』,而其中 11 个的样本因为语言不适用或布局不匹配一次都没种下去——那是一句假的绿。",
+  "shared_root_cause": "gates/ 里的样本树路径写死在模板的 Python 布局(src/project/features/…、src/project/platform/…)。本项目的 languages.include_globs 是 src/**/*.ts 与 src/**/*.tsx,种进去的 .py 落在任何声明范围之外,闸扫不到它。真解是让样本树按 project_model 派生路径,那时这一整批登记会一起消失。",
+  "verify_command": "uv run --project .ai-config python tools/gate.py gate-fixtures",
+  "entries": {
+    "backend-contracts": {
+      "reason": "gates/backend-contracts/tree 种的是 src/project/ 下的 .py,不在本项目 include_globs 内,样本从未种下去。",
+      "clear_when": "gates/backend-contracts/tree 的样本文件落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 backend-contracts。",
+      "registered": "2026-07-30"
+    },
+    "backend-contracts-changed": {
+      "reason": "与 backend-contracts 同一份样本(gates/backend-contracts),同一个原因。",
+      "clear_when": "gates/backend-contracts/tree 的样本文件落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 backend-contracts-changed。",
+      "registered": "2026-07-30"
+    },
+    "dependency-change-approval": {
+      "reason": "gates/dependency-approval/tree 种的是 requirements.txt,而本项目 contracts.dependency_files 认的是 package.json 与 package-lock.json,种进去没有任何闸会看它。",
+      "clear_when": "gates/dependency-approval/tree 里出现一份 package.json 变更样本之后,verify_command 的输出里不再出现 dependency-change-approval。",
+      "registered": "2026-07-30"
+    },
+    "detect-secrets": {
+      "reason": "gates/detect-secrets/tree 种的是 src/project/ 下的 .py,不在本项目 include_globs 内,样本从未种下去。",
+      "clear_when": "gates/detect-secrets/tree 的样本文件落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 detect-secrets。",
+      "registered": "2026-07-30"
+    },
+    "inventory-closure": {
+      "reason": "gates/inventory-closure 与 gates/feature-api-boundary 两份样本都种在 src/project/ 下的 .py,不在本项目 include_globs 内。",
+      "clear_when": "这两份样本任一的 tree 落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 inventory-closure。",
+      "registered": "2026-07-30"
+    },
+    "inventory-closure-changed": {
+      "reason": "gates/inventory-closure 与 gates/zone-import-policy 两份样本都种在 src/project/ 下的 .py,不在本项目 include_globs 内。",
+      "clear_when": "这两份样本任一的 tree 落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 inventory-closure-changed。",
+      "registered": "2026-07-30"
+    },
+    "lifecycle": {
+      "reason": "gates/lifecycle/tree 种的是 src/project/ 下的 .py,不在本项目 include_globs 内,样本从未种下去。",
+      "clear_when": "gates/lifecycle/tree 的样本文件落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 lifecycle。",
+      "registered": "2026-07-30"
+    },
+    "lifecycle-changed": {
+      "reason": "与 lifecycle 同一份样本(gates/lifecycle),同一个原因。",
+      "clear_when": "gates/lifecycle/tree 的样本文件落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 lifecycle-changed。",
+      "registered": "2026-07-30"
+    },
+    "semgrep": {
+      "reason": "gates/semgrep/tree 种的是 src/project/features 下的 .py(裸 time.sleep),不在本项目 include_globs 内;且本项目未声明 python,该规则本就不会命中。",
+      "clear_when": "gates/semgrep/ 出现一份 TypeScript 的违规样本且落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 semgrep。",
+      "registered": "2026-07-30"
+    },
+    "orphan-module": {
+      "reason": "gates/orphan-module/tree 种的是 src/project/platform 下的 .py,不在本项目 include_globs 内,样本从未种下去。",
+      "clear_when": "gates/orphan-module/tree 的样本文件落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 orphan-module。",
+      "registered": "2026-07-30"
+    }
+  }
+}

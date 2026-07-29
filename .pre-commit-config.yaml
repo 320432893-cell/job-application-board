@@ -25,8 +25,12 @@ repos:
           (?x)^(
             uv\.lock|
             \.ai-config/config/settings\.json|
+            \.ai-config/template-state\.json|
             gates/.*
           )$
+        # template-state.json 按构造就是一整份文件 SHA-256 清单,detect-secrets 一律判成
+        # "Hex High Entropy String"。模板自己没有这个文件(它只在接管态项目里生成),
+        # 所以这条漏了很久——框架的坑几乎都长这样:只在被接管的项目里炸。
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -86,7 +90,13 @@ repos:
         entry: uv run --no-project python tools/gate.py rule-tool-contracts
         language: system
         pass_filenames: false
-        files: ^(\.ai-config/.*|\.semgrep/.*|\.github/workflows/.*|\.pre-commit-config\.yaml|\.ruff\.toml|\.importlinter|\.gitignore|tools/.*\.py|pyproject\.toml|uv\.lock)$
+        # 闸自己的目录 + 仓库根上的任何文件。根级那条(`[^/]+`)刻意不列扩展名:各语言的清单
+        # 都住在根上(pyproject.toml / package.json / go.mod / vite.config.ts),列扩展名的写法
+        # 每接一门新语言就漏一次——实测纯 TS 仓漏掉 package.json、vite.config.ts 等 5 个。
+        # 宁可多跑(改根上的 README 会白跑 1.2s)也不能漏触发:漏了是静默不检查。
+        # 精确判据仍只有一份,在 project_model.contracts.contract_files,check.py 直接读它;
+        # 这里只需要是它的超集,rule-tool-contracts 会核对这层包含关系。
+        files: ^(\.ai-config/.*|\.semgrep/.*|\.github/workflows/.*|tools/.*\.py|[^/]+)$
 
       - id: dependency-change-approval
         name: dependency/lock change approval gate

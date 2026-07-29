@@ -1,0 +1,3 @@
+tools = ["ruff-check", "ruff-staged"]
+violates = "未用 import、裸 except、print、缺类型注解等 lint 违规"
+stage = true

@@ -1,0 +1,2 @@
+tools = ["rule-tool-contracts"]
+violates = "文档引用了不存在的规则文件(过期引用;替掉手工黑名单后的通用判据)"

@@ -1,0 +1,2 @@
+tools = ["orphan-module"]
+violates = "新增模块没有任何调用方,也没登记预期消费者与可判定的清除条件"

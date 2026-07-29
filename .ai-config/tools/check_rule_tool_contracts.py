@@ -367,8 +367,6 @@ def check_ci_semantics(root: pathlib.Path, issues: list[Issue]) -> None:
 
 def _check_pre_commit_enforcement_wiring(root: pathlib.Path, launcher: str, issues: list[Issue]) -> None:
     pre_commit = read_text(root / ".pre-commit-config.yaml")
-    normalized_pre_commit = pre_commit.replace("\\", "")
-
     required_pre_commit_patterns = [
         r"id:\s*rule-tool-contracts",
         # 只卡"喊的是启动入口 + 这个 tool id",不卡前面的 uv 参数:环境怎么挑是 launcher 的职责,
@@ -382,12 +380,10 @@ def _check_pre_commit_enforcement_wiring(root: pathlib.Path, launcher: str, issu
     for pattern in required_pre_commit_patterns:
         if not re.search(pattern, pre_commit):
             issues.append(Issue("ERROR", f"pre-commit enforcement wiring missing pattern: {pattern}"))
-    for path in (".github/workflows", ".pre-commit-config.yaml", "tools/.*.py"):
-        if path not in normalized_pre_commit:
-            issues.append(Issue("ERROR", f"pre-commit enforcement wiring missing path: {path}"))
-    for path in (".ruff.toml", ".importlinter"):
-        if path not in normalized_pre_commit:
-            issues.append(Issue("ERROR", f"pre-commit rule-tool-contracts trigger missing path: {path}"))
+    # 这里原来还有两圈"正则里必须逐字出现某某路径"的子串核对,删了:
+    # 它查的是**拼写**,而 check_rule_tool_contracts_trigger 直接把正则编译出来拿样本路径试匹配,
+    # 查的是**行为**——后者严格更强。留着子串核对的代价是正则不能写成语言无关的形状
+    # (`[^/]+` 能匹配 .ruff.toml,但字面上没有"\.ruff\.toml"),纯 TS 仓因此必红。
 
 
 def check_enforcement_wiring(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None:
@@ -408,7 +404,10 @@ def check_enforcement_wiring(root: pathlib.Path, registry: dict, issues: list[Is
     if "project_contract_patterns" not in entrypoint_text:
         issues.append(Issue("ERROR", "unified entrypoint must read contract triggers from project_model.contracts"))
     contract_files = set(load_project_model().get("contracts", {}).get("contract_files", []))
-    for path in (".importlinter", ".pre-commit-config.yaml", entrypoint, launcher):
+    # 这里只列语言无关的闸自身接线。`.importlinter`/`.ruff.toml` 这类语言专属配置不列:
+    # 它们是各自工具的 configured_in,已经被逐工具那条覆盖检查管着(且已按语言过滤),
+    # 在这里再写一遍就是同一个事实的第二份拷贝,纯 TS 仓会被它误报。
+    for path in (".pre-commit-config.yaml", entrypoint, launcher):
         if path not in contract_files:
             issues.append(Issue("ERROR", f"project_model.contracts.contract_files missing trigger: {path}"))
 
@@ -740,6 +739,18 @@ def check_registered_check_scripts(root: pathlib.Path, registry: dict, issues: l
             )
 
 
+def _semgrep_rule_applies(text: str, declared: set[str]) -> bool:
+    """semgrep 规则文件声明了 languages 时,项目至少要声明其中一门才适用;不是 semgrep 文件就一律适用。
+
+    只认 `languages: [a, b]` 这一种写法(本仓规则统一这么写)。写成多行列表就解析不出来,
+    那时退回"适用"——判不准就多查一遍,别静默跳过一条本该跑的检查。
+    """
+    if match := re.search(r"(?m)^\s*languages:\s*\[([^\]]*)\]", text):
+        needs = {item.strip().strip("\"'") for item in match.group(1).split(",") if item.strip()}
+        return not needs or bool(needs & declared)
+    return True
+
+
 def check_layout_literals_in_side_configs(root: pathlib.Path, _registry: dict, issues: list[Issue]) -> None:
     # `_registry` 保留只为对齐 main() 里 check_*(ROOT, registry, issues) 的统一调用形状。
     allowed = _layout_path_values()
@@ -753,10 +764,15 @@ def check_layout_literals_in_side_configs(root: pathlib.Path, _registry: dict, i
         *sorted((root / ".semgrep").glob("*.yml")),
         *sorted((root / ".semgrep").glob("*.yaml")),
     ]
+    declared = {str(lang.get("id", "")) for lang in load_project_model().get("languages", [])}
     for path in side_configs:
         if not path.exists():
             continue
         text = read_text(path)
+        # semgrep 规则自己就写着 `languages: [python]`。项目没声明那门语言时这条规则永远不会命中,
+        # 再去挑它排除路径里的 `tests` 字面量是纯噪音——判据从文件里读,不靠维护一张文件名清单。
+        if not _semgrep_rule_applies(text, declared):
+            continue
         for literal in sorted(risky_literals):
             patterns = (
                 rf"(?m)(^|[\s\"'/.*^-]){re.escape(literal)}([/.\s\"'$-]|$)",
@@ -770,6 +786,27 @@ def check_layout_literals_in_side_configs(root: pathlib.Path, _registry: dict, i
                     )
                 )
                 break
+
+
+def check_detect_secrets_exclusions_agree(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None:
+    """detect-secrets 的排除表在两处各写了一份(全量扫的 registry 命令 / 只扫暂存区的 pre-commit),
+    两处都必须列同一批路径。
+
+    为什么不合并成一份:一处是 TOML 里的 shell 参数,一处是 YAML 里的多行正则,没有共同的宿主。
+    合不了就至少别让它们静默分叉——实测分叉的后果是 pre-commit 绿、全量扫红,同一份文件两种结论。
+    """
+    command = " ".join(
+        str(item) for tool in registry.get("tools", []) if tool.get("id") == "detect-secrets" for item in tool.get("entrypoint_commands", [])
+    )
+    hook = find_pre_commit_hook(load_pre_commit_config(root / ".pre-commit-config.yaml"), "detect-secrets")
+    excluded = str((hook or {}).get("exclude") or "")
+    # 抹掉反斜杠再做子串比对,不要 re.escape:它会把 `-` 也转义成 `\-`,而两份正则里写的都是裸 `-`,
+    # 于是"两边都找不到"→ 两边一致 → 恒真通过。第一版就是这么写的,消融时一条都没红。
+    for path in (".ai-config/template-state.json", "uv.lock", ".ai-config/config/settings.json"):
+        in_command, in_hook = path in command.replace("\\", ""), path in excluded.replace("\\", "")
+        if in_command != in_hook:
+            where = "registry 命令" if in_command else "pre-commit exclude"
+            issues.append(Issue("ERROR", f"detect-secrets 排除表分叉:`{path}` 只在 {where} 里排除了,另一处没有"))
 
 
 def check_side_config_ownership(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None:
@@ -878,6 +915,7 @@ def main() -> int:
     check_registered_check_scripts(ROOT, registry, issues)
     check_layout_literals_in_side_configs(ROOT, registry, issues)
     check_side_config_ownership(ROOT, registry, issues)
+    check_detect_secrets_exclusions_agree(ROOT, registry, issues)
     check_gitignore(ROOT, issues)
     check_tools(ROOT, registry, issues)
     check_scan_command_hygiene(registry, issues)

@@ -8,9 +8,11 @@
 from __future__ import annotations
 
 import tomllib
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from pathspec import GitIgnoreSpec
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -542,5 +544,19 @@ def project_model_dict(model: ProjectModel) -> dict:
 
 
 def path_matches(path_name: str, patterns: list[str]) -> bool:
-    path = PurePosixPath(path_name)
-    return any(path.match(pattern) or (pattern.startswith("**/") and path.match(pattern[3:])) for pattern in patterns)
+    """按 gitignore 通配语义匹配。
+
+    为什么不用 PurePath.match:那里的 `**` 在 3.13 之前等同于 `*`,只吃掉一层目录。
+    实测后果——纯 TS 项目声明 `src/**/*.tsx`,28 个源文件里只有"src 下正好一层"的 13 个进了
+    导入图,src/components/** 和 src/App.tsx 全部静默消失,于是 src/router/index.tsx 被判成
+    零消费者(它的 import 方 src/App.tsx 根本不在图里)。图缺一半而没有任何红灯,是最坏的状态。
+    模板自己看不见这个 bug:它唯一的语言模式是 `**/*.py`,正好命中过去那条 startswith("**/")
+    的兜底分支。这类"只在被接管的项目里炸"的坑,判据必须换成真递归的那一种。
+    """
+    return bool(patterns) and _compiled_spec(tuple(patterns)).match_file(path_name)
+
+
+@lru_cache(maxsize=256)
+def _compiled_spec(patterns: tuple[str, ...]) -> GitIgnoreSpec:
+    # 与 inventory / inventory_model_coverage 用同一个 spec 类型:一套通配语义,不要两套。
+    return GitIgnoreSpec.from_lines(patterns)

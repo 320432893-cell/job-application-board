@@ -1,0 +1,5 @@
+[contracts.api]
+schema_file = "docs/_fx_missing_openapi.json"
+export_command = "true"
+compatibility_command = "true {baseline} {current}"
+source_globs = ["src/project/features/_fx_contract.py"]

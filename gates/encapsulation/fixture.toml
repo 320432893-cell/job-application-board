@@ -1,0 +1,2 @@
+tools = ["encapsulation"]
+violates = "正式区跨模块 import 私有名 `_private_helper`"

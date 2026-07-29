@@ -1,0 +1,3 @@
+tools = ["dependency-change-approval"]
+violates = "暂存了依赖清单变更(新增 requirements.txt)但没有显式放行环境变量"
+stage = true

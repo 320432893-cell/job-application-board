@@ -1,0 +1,2 @@
+tools = ["semgrep"]
+violates = "正式代码里裸用 time.sleep 做等待"

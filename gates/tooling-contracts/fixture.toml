@@ -1,0 +1,2 @@
+tools = ["rule-tool-contracts"]
+violates = "新增 tools/check_*.py 检查器但没有在 registry 里登记(僵尸工具)"

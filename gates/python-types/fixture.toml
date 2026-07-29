@@ -1,0 +1,2 @@
+tools = ["basedpyright"]
+violates = "正式区把字符串赋给 int 注解的变量(类型不符)"

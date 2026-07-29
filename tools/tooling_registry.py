@@ -101,6 +101,11 @@ def uv_run_python_script_target(command: str) -> str | None:
     return target if target.endswith(".py") else None
 
 
+def declared_language_ids(model: dict) -> set[str]:
+    """项目模型里声明了哪几门语言。判据只此一处,调用方不各自解构 [[languages]]。"""
+    return {str(lang.get("id", "")) for lang in model.get("languages", [])}
+
+
 def applies_to_languages(tool: dict, declared: set[str]) -> bool:
     """工具声明了 languages 时,项目必须至少声明其中一门,否则这道闸不适用。
 

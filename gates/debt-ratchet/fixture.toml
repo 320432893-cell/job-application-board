@@ -1,0 +1,2 @@
+tools = ["debt"]
+violates = "relaxed 放行登记的 reopen_when 用了含糊词(『以后再说』)，不是可判定的清除条件"

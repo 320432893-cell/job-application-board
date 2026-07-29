@@ -1,0 +1,2 @@
+tools = ["ruff-format-check"]
+violates = "格式不符合 ruff format(缩进/空格/引号/换行)"

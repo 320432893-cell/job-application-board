@@ -32,8 +32,7 @@ from tooling_layout import (
     architecture_settings,
     entrypoint_files,
     expand_args,
-    fixed_quality_dirs,
-    support_dirs,
+    is_changed_ruff_path,  # noqa: F401 —— 经 check_changed.env_from(globals()) 按名字取用,ruff 看不见
     test_dirs,
 )
 from tooling_layout import (
@@ -75,18 +74,6 @@ def is_code_name(name: str) -> bool:
 
 def is_source_name(name: str) -> bool:
     return evidence.path_kind(name) in {"python", "source"}
-
-
-def is_changed_ruff_path(path: pathlib.Path) -> bool:
-    path_str = rel(path)
-    if path_str.startswith("."):
-        return False
-    if "/" not in path_str:
-        return path.suffix == ".py"
-    return any(
-        path_str == directory or path_str.startswith(f"{directory}/")
-        for directory in set(fixed_quality_dirs()) | set(support_dirs())
-    )
 
 
 def git_changed_names(args: Sequence[str]) -> tuple[int, list[str], str]:
@@ -398,8 +385,7 @@ def run_item(item: str, command_mode: str = "entrypoint") -> int:
     registry = load_registry()
     registry_commands = registry_tool_commands(command_mode)
     tool = tooling_registry.tool_by_id(item, registry)
-    declared = {str(lang.get("id", "")) for lang in load_project_model().get("languages", [])}
-    if not tooling_registry.applies_to_languages(tool, declared):
+    if not tooling_registry.applies_to_languages(tool, tooling_registry.declared_language_ids(load_project_model())):
         needs = ", ".join(str(x) for x in tool.get("languages", []))
         print(f"[check] {item}: skipped, 本项目未声明 {needs}(在 project_model 的 [[languages]] 里声明才会跑)")
         REPORT.record(item, 0, 0.0, skipped=True, reason=f"未声明语言 {needs}")

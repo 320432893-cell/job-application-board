@@ -1,0 +1,2 @@
+tools = ["backend-contracts-changed", "backend-contracts"]
+violates = "声明了 API 契约但承诺的 schema_file 不存在(契约声明与仓库现状不符)"

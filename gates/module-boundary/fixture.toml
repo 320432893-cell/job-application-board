@@ -1,0 +1,2 @@
+tools = ["module-boundary-changed", "module-boundary"]
+violates = "正式区新增模块缺四项职责声明头(职责/不做什么/允许依赖层/谁不应该 import)"

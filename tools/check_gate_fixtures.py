@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 职责：反向样本闸——每道会拦人的闸必须配一段"应当被拦住"的代码，跑它必须退非 0；并强制完备性(新增闸没配样本即红)。
 # 不做什么：不判断闸的判据是否合理、不看输出文本(只看退出码)、不替人决定豁免。
-# 允许依赖层：标准库、registry、gates/ 样本目录、tools/check.py(经子进程)。
+# 允许依赖层：标准库、registry、project_model、gates/ 样本目录、tools/gate.py(经子进程)。
 # 谁不应该 import：正式业务代码、测试夹具、应用入口不应 import 本检查脚本。
 """Negative-fixture gate: every blocking check must still block its own bad sample.
 
@@ -18,6 +18,9 @@ import sys
 import tomllib
 from pathlib import Path
 
+import project_model
+import tooling_registry
+
 ROOT = Path(__file__).resolve().parents[1]
 GATES_DIR = ROOT / "gates"
 REGISTRY = ROOT / ".ai-config" / "config" / "tooling.registry.toml"
@@ -27,12 +30,48 @@ def load_registry() -> dict:
     return tomllib.loads(REGISTRY.read_text(encoding="utf-8"))
 
 
+def planted_names(fixture: Fixture) -> list[str]:
+    """样本种下去之后在仓库里的相对路径。"""
+    tree = fixture.tree
+    if not tree.is_dir():
+        return []
+    return [str(path.relative_to(tree)) for path in sorted(tree.rglob("*")) if path.is_file()]
+
+
+def fixture_in_scope(fixture: Fixture) -> bool:
+    """样本树必须落在本项目声明的源码范围里。
+
+    样本的目录结构写死在模板里(src/project/features/…)。接管态项目的布局不同时,种下去的文件
+    连 inventory 都不收——闸扫不到它,"必须被拦住"的断言就稳定误红,红的还是个假问题。
+    判据直接用 inventory 收文件时的同一条:它看不见的东西,任何闸都拦不住。
+    没有 tree/ 的样本(纯 append/)不受这条约束。
+    """
+    names = planted_names(fixture)
+    if not names:
+        return True
+    globs = project_model.source_include_globs(project_model.load_project_model())
+    return any(project_model.path_matches(name, globs) for name in names)
+
+
+def declared_languages() -> set[str]:
+    """项目声明了哪几门语言。直接读 TOML:本脚本刻意不依赖 pydantic 那条链,起得来就够。"""
+    model = ROOT / ".ai-config" / "project_model.toml"
+    if not model.is_file():
+        return set()
+    data = tomllib.loads(model.read_text(encoding="utf-8"))
+    return {str(item.get("id", "")) for item in data.get("languages", [])}
+
+
 def required_tools(registry: dict) -> dict[str, str]:
     """Tools that can fail a commit or CI run, so they owe a negative fixture."""
     required: dict[str, str] = {}
+    declared = declared_languages()
     for tool in registry.get("tools", []):
         tool_id = str(tool.get("id", "")).strip()
         if not tool_id or tool.get("fixture_exempt"):
+            continue
+        # 本项目跑不到的工具不欠样本:它在这里永远原地跳过,种个坏样本也拦不住谁。
+        if not tooling_registry.applies_to_languages(tool, declared):
             continue
         stages = [str(stage) for stage in tool.get("stages", [])]
         if str(tool.get("enforcement", "")).strip() == "blocking":
@@ -146,8 +185,10 @@ def uproot(created: list[Path]) -> None:
 
 
 def run_tool(tool: str) -> int:
+    # 走启动入口而不是直接喊 check.py:接管态项目的根目录没有 pyproject,`uv run python` 拿到的是
+    # 裸解释器,第一行 import 就炸。gate.py 负责挑环境。
     proc = subprocess.run(
-        ["uv", "run", "python", "tools/check.py", tool], cwd=ROOT, capture_output=True, text=True, check=False
+        ["uv", "run", "python", "tools/gate.py", tool], cwd=ROOT, capture_output=True, text=True, check=False
     )
     return proc.returncode
 
@@ -176,10 +217,24 @@ def main() -> int:
         if tool not in covered
     )
 
+    declared = declared_languages()
+    applicable = {
+        str(tool.get("id", "")).strip()
+        for tool in registry.get("tools", [])
+        if tooling_registry.applies_to_languages(tool, declared)
+    }
     for fixture in fixtures:
         label = fixture.directory.name
         if not fixture.tree.is_dir() and not fixture.appends.is_dir():
             failures.append(f"fixture {label} has neither tree/ nor append/")
+            continue
+        # 样本本身是 Python 代码,针对的工具在纯 TS 仓全都原地跳过 → 种下去谁也拦不住,
+        # 断言"必须退非 0"会稳定误红。显式跳过,不静默通过。
+        if not set(fixture.tools) & applicable:
+            sys.stdout.write(f"[fixtures] {label}: SKIPPED (样本针对的工具在本项目都不适用)\n")
+            continue
+        if not fixture_in_scope(fixture):
+            sys.stdout.write(f"[fixtures] {label}: SKIPPED (样本树不在本项目声明的源码范围里,种下去闸也扫不到)\n")
             continue
         if fixture.needs_index and not index_is_clean():
             sys.stdout.write(f"[fixtures] {label}: SKIPPED (需要暂存样本但 git 索引非空;先提交或 stash 后重跑)\n")
@@ -191,7 +246,7 @@ def main() -> int:
             files = [str(path.relative_to(ROOT)) for path in created if path.is_file()]
             if fixture.needs_index:
                 git(["add", "--", *files])
-            results = {tool: run_tool(tool) for tool in fixture.tools}
+            results = {tool: run_tool(tool) for tool in fixture.tools if tool in applicable}
         finally:
             if fixture.needs_index and created:
                 git(["reset", "-q", "--", *[str(path.relative_to(ROOT)) for path in created if path.is_file()]])

@@ -1,0 +1,2 @@
+tools = ["import-linter"]
+violates = "platform 反向依赖 features(破坏依赖方向契约)"

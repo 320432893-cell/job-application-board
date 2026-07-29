@@ -1,0 +1,9 @@
+[[tools]]
+id = "fx-debt-sample"
+capability_id = "fx-debt-sample"
+kind = "project-static-tool"
+purpose = "Negative sample: a relaxed registration whose clear-condition is vague."
+rule = ".ai-config/AGENTS.md"
+relaxed = true
+relaxed_reason = "反向样本：原因写了，但清除条件故意含糊。"
+reopen_when = "以后再说"

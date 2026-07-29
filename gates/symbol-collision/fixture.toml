@@ -1,0 +1,2 @@
+tools = ["dup-symbol-changed"]
+violates = "两个正式区模块导出完全同名的顶层符号(同一能力两处真源)"

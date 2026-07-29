@@ -1,0 +1,2 @@
+tools = ["inventory-closure-changed"]
+violates = "正式区 import 支持区(tools/)——support 不在 formal 的 may_import_zones 里"

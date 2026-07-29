@@ -1,0 +1,2 @@
+tools = ["lifecycle-changed", "lifecycle"]
+violates = "非正式区(probes/)新增 Python 文件但没有 `# lifecycle:` 身份标注"

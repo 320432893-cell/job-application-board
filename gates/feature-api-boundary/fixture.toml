@@ -1,0 +1,2 @@
+tools = ["inventory-closure"]
+violates = "跨 feature 直接 import 对方内部文件，绕过了对方的 api.py"

@@ -11,6 +11,7 @@ import pathlib
 from collections.abc import Iterable, Sequence
 from functools import lru_cache
 
+import tooling_registry
 from project_model import load_project_model_dict
 from repo_files import scannable_files
 
@@ -202,6 +203,28 @@ def test_dirs() -> tuple[str, ...]:
 
 def ignored_dirs() -> tuple[str, ...]:
     return layout_list("ignored_dirs")
+
+
+def is_changed_ruff_path(path: pathlib.Path) -> bool:
+    """这个改动过的文件该不该过 ruff。
+
+    从 check.py 搬过来:它是纯布局判据(rel / fixed_quality_dirs / support_dirs 都住这儿),
+    留在统一入口里只是让那份文件继续变胖——超行数棘轮的 split_when 要的就是这类外迁。
+
+    第一行的语言闸是补的:changed 档直接起 argv,绕开了 run_item 的语言过滤。漏了它,
+    纯 TS 仓会拿 ruff 的默认规则去挑闸自带的那批 tools/*.py(那儿连 .ruff.toml 都没装)。
+    """
+    if not path.is_relative_to(ROOT):
+        return False  # 仓库外的文件不归本仓的 ruff 管;rel() 对它会直接抛 ValueError
+    path_str = rel(path)
+    if path_str.startswith(".") or "python" not in tooling_registry.declared_language_ids(load_project_model_dict()):
+        return False
+    if "/" not in path_str:
+        return path.suffix == ".py"
+    return any(
+        path_str == directory or path_str.startswith(f"{directory}/")
+        for directory in set(fixed_quality_dirs()) | set(support_dirs())
+    )
 
 
 def informal_zone_dirs() -> tuple[str, ...]:

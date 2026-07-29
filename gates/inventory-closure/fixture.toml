@@ -1,0 +1,2 @@
+tools = ["inventory-closure-changed", "inventory-closure"]
+violates = "新增 Python 文件落在任何 zone 之外(无归属)"

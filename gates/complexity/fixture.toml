@@ -1,0 +1,2 @@
+tools = ["complexity"]
+violates = "正式区新增 CC≥21 的超复杂函数(复杂度棘轮只减不增)"

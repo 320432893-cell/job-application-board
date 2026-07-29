@@ -1,0 +1,2 @@
+tools = ["detect-secrets"]
+violates = "源码里硬编码 AWS access key 与 GitHub token"

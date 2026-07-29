@@ -1,0 +1,2 @@
+tools = ["import-cycles-changed", "import-cycles"]
+violates = "两个模块互相 import 形成环"

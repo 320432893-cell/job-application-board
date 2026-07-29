@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import subprocess
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from pathspec import GitIgnoreSpec
-from project_model import ProjectModel, excluded_member_roots, path_matches, source_include_globs
+from project_model import ProjectModel, excluded_member_roots, path_matches, source_include_globs, source_suffixes
 
 # `git diff --name-status -M` 的重命名行恰好两列:旧路径 + 新路径。
 RENAME_FIELD_COUNT = 2
+# 永远不可能是本项目源码的目录:剪掉它们只为别空跑几千个文件,与模型的 ignore 是两回事。
+PRUNED_DIRS = {".venv", "node_modules", "__pycache__", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
 
 
 def is_under(path_name: str, directory: str) -> bool:
@@ -23,8 +25,23 @@ def is_under(path_name: str, directory: str) -> bool:
     return bool(clean) and (path_name == clean or path_name.startswith(f"{clean}/"))
 
 
-def python_names(root: Path) -> set[str]:
-    return {path.relative_to(root).as_posix() for path in root.rglob("*.py")}
+def source_names(root: Path, model: ProjectModel) -> set[str]:
+    """磁盘上属于本项目声明语言的源码文件。
+
+    写死 *.py 的后果实测过:纯 TS 项目里它扫出 3357 个 .py(连 .venv 都走),而进入候选的是 0 个,
+    quality_fixed 区守住的也是 0 个 —— 这道"防止改模型降标"的闸在非 Python 项目里等于不存在,
+    而且全程绿灯。
+
+    刻意**不**用模型的 ignore 过滤:这道闸查的就是"有没有靠新加 ignore 把既有代码移出扫描",
+    拿被测对象当过滤器等于自证清白。只剪掉框架级永不可能是源码的目录(.venv/node_modules/…)。
+    """
+    suffixes = set(source_suffixes(model))
+    names: set[str] = set()
+    for path in root.rglob("*"):
+        if path.suffix not in suffixes or not path.is_file() or set(path.parts) & PRUNED_DIRS:
+            continue
+        names.add(path.relative_to(root).as_posix())
+    return names
 
 
 def candidate_names(names: set[str], model: ProjectModel) -> set[str]:
@@ -39,16 +56,16 @@ def candidate_names(names: set[str], model: ProjectModel) -> set[str]:
     return candidates
 
 
-def head_python_names(root: Path) -> set[str]:
+def head_source_names(root: Path, model: ProjectModel) -> set[str]:
     proc = subprocess.run(
         ["git", "ls-tree", "-r", "--name-only", "HEAD"], cwd=root, text=True, capture_output=True, check=False
     )
     if proc.returncode != 0:
         return set()
-    return {name for name in proc.stdout.splitlines() if name.endswith(".py")}
+    return _with_declared_suffix(proc.stdout.splitlines(), model)
 
 
-def renamed_python_destinations(root: Path) -> dict[str, str]:
+def renamed_source_destinations(root: Path, model: ProjectModel) -> dict[str, str]:
     proc = subprocess.run(
         ["git", "diff", "--name-status", "-M", "HEAD"], cwd=root, text=True, capture_output=True, check=False
     )
@@ -57,24 +74,30 @@ def renamed_python_destinations(root: Path) -> dict[str, str]:
     renamed: dict[str, str] = {}
     for line in proc.stdout.splitlines():
         status, *names = line.split("\t")
-        if status.startswith("R") and len(names) == RENAME_FIELD_COUNT and names[0].endswith(".py"):
+        if status.startswith("R") and len(names) == RENAME_FIELD_COUNT and _has_declared_suffix(names[0], model):
             renamed[names[0]] = names[1]
     return renamed
 
 
-def changed_python_names(root: Path) -> set[str]:
+def changed_source_names(root: Path, model: ProjectModel) -> set[str]:
     proc = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD", "--", "*.py"], cwd=root, text=True, capture_output=True, check=False
+        ["git", "diff", "--name-only", "HEAD"], cwd=root, text=True, capture_output=True, check=False
     )
-    if proc.returncode != 0:
-        return set()
-    changed = {name for name in proc.stdout.splitlines() if name.endswith(".py")}
+    changed = _with_declared_suffix(proc.stdout.splitlines() if proc.returncode == 0 else [], model)
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"], cwd=root, text=True, capture_output=True, check=False
     )
     if untracked.returncode == 0:
-        changed.update(name for name in untracked.stdout.splitlines() if name.endswith(".py"))
+        changed |= _with_declared_suffix(untracked.stdout.splitlines(), model)
     return changed
+
+
+def _has_declared_suffix(name: str, model: ProjectModel) -> bool:
+    return PurePosixPath(name).suffix in set(source_suffixes(model))
+
+
+def _with_declared_suffix(lines: list[str], model: ProjectModel) -> set[str]:
+    return {line.strip() for line in lines if line.strip() and _has_declared_suffix(line.strip(), model)}
 
 
 def model_changed(root: Path, model_path: Path) -> bool:
@@ -109,11 +132,11 @@ def quality_coverage_violations(root: Path, model_path: Path, current: ProjectMo
     if prior is None:
         return []
     violations: list[dict[str, object]] = []
-    present = python_names(root)
-    prior_candidates = candidate_names(head_python_names(root), prior)
+    present = source_names(root, current)
+    prior_candidates = candidate_names(head_source_names(root, prior), prior)
     current_candidates = candidate_names(present, current)
-    renamed = renamed_python_destinations(root)
-    unscanned_changed_python = (changed_python_names(root) & present) - current_candidates
+    renamed = renamed_source_destinations(root, current)
+    unscanned_changed_python = (changed_source_names(root, current) & present) - current_candidates
     changed_model = model_changed(root, model_path)
     for prior_name in sorted(prior_candidates):
         if "quality_fixed" not in zone_traits(prior_name, prior):

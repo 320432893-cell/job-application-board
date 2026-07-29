@@ -1,0 +1,4 @@
+tools = ["inventory-closure-changed", "inventory-closure"]
+violates = "新增 TypeScript 文件落在任何 zone 之外(无归属)"
+# Python 那份双胞胎在 gates/inventory-closure。
+language = "typescript"

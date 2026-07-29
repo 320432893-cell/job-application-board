@@ -91,32 +91,30 @@ def changed_file_names(pathspecs: list[str] | tuple[str, ...] = ()) -> set[str]:
     return {name for name in names if (ROOT / name).exists()}
 
 
-def changed_python_names() -> set[str]:
-    return {name for name in changed_file_names(("*.py",)) if name.endswith(".py")}
+def changed_source_names() -> set[str]:
+    """改动过的源码文件名。后缀按模型声明取,写死 *.py 会让非 Python 项目的整个 changed 档
+    静默不检查(候选清单恒空 → 每道 *-changed 闸都绿)。判据与证据见 tests/test_changed_scope_languages.py。"""
+    suffixes = source_suffixes(load_project_model())
+    names = changed_file_names(tuple(f"*{suffix}" for suffix in suffixes))
+    return {name for name in names if PurePosixPath(name).suffix in suffixes}
 
 
-def removed_python_names() -> set[str]:
+def removed_source_names() -> set[str]:
+    suffixes = source_suffixes(load_project_model())  # 同理:不写死 *.py,后缀跟着模型走
+    globs = [f"*{suffix}" for suffix in suffixes]
     names: set[str] = set()
-    for args in (
-        ["diff", "--relative", "--name-only", "--diff-filter=D", "--", "*.py"],
-        ["diff", "--relative", "--cached", "--name-only", "--diff-filter=D", "--", "*.py"],
-    ):
-        proc = git(args)
-        if proc.returncode != 0:
-            continue
-        names.update(strip_git_prefix(line.strip()) for line in proc.stdout.splitlines() if line.strip())
-    for args in (
-        ["diff", "--relative", "--name-status", "--diff-filter=R", "--", "*.py"],
-        ["diff", "--relative", "--cached", "--name-status", "--diff-filter=R", "--", "*.py"],
-    ):
-        proc = git(args)
-        if proc.returncode != 0:
-            continue
-        for line in proc.stdout.splitlines():
-            parts = line.split("\t")
-            if len(parts) >= RENAME_NAME_STATUS_FIELDS:
-                names.add(strip_git_prefix(parts[1].strip()))
-    return {name for name in names if name.endswith(".py")}
+    for scope in ([], ["--cached"]):
+        base = ["diff", "--relative", *scope]
+        proc = git([*base, "--name-only", "--diff-filter=D", "--", *globs])
+        if proc.returncode == 0:
+            names.update(strip_git_prefix(line.strip()) for line in proc.stdout.splitlines() if line.strip())
+        proc = git([*base, "--name-status", "--diff-filter=R", "--", *globs])
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                parts = line.split("\t")
+                if len(parts) >= RENAME_NAME_STATUS_FIELDS:
+                    names.add(strip_git_prefix(parts[1].strip()))
+    return {name for name in names if PurePosixPath(name).suffix in suffixes}
 
 
 def pathspec_from(patterns: list[str]) -> PathSpec:
@@ -391,7 +389,7 @@ def full_python_candidates(model: ProjectModel, ignored: PathSpec) -> list[Path]
 def iter_python_files(model: ProjectModel, scope: str = "full") -> list[Path]:
     ignored = pathspec_from(model.ignore.patterns)
     paths: list[Path] = []
-    candidates = [ROOT / name for name in changed_python_names()] if scope == "changed" else full_python_candidates(model, ignored)
+    candidates = [ROOT / name for name in changed_source_names()] if scope == "changed" else full_python_candidates(model, ignored)
     for path in candidates:
         if not path.exists() or path.suffix not in source_suffixes(model):
             continue
@@ -591,7 +589,7 @@ def build_inventory(scope: str = "full") -> dict:
     ]
     edges: list[dict[str, object]] = []
     resolver_files = files
-    removed_paths = sorted(removed_python_names()) if scope == "changed" else []
+    removed_paths = sorted(removed_source_names()) if scope == "changed" else []
     deleted_records = [deleted_file_record(path_name, model) for path_name in removed_paths]
     if scope == "changed":
         scoped_paths = {str(item["path"]) for item in files}

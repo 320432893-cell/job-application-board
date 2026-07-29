@@ -1,2 +1,4 @@
 tools = ["inventory-closure-changed", "inventory-closure"]
 violates = "新增 Python 文件落在任何 zone 之外(无归属)"
+# 这道闸的判据落在源码图上,样本必须是本项目声明的语言写的;另有一份 -ts 双胞胎。
+language = "python"

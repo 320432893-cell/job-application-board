@@ -26,9 +26,12 @@ ROOT = Path(__file__).resolve().parents[1]
 HEAD_LINES = 15
 
 # 仅保留"身份标注"识别：temp/t0、devtool、兼容别名——用于判断文件是否已声明身份(has_tag)。
-TEMP = re.compile(r"#\s*lifecycle:\s*(t0|temp)\b", re.IGNORECASE)
-DEVTOOL = re.compile(r"#\s*lifecycle:\s*devtool\b", re.IGNORECASE)
-ALIAS = re.compile(r"#\s*兼容别名")
+# 注释符两种都认(`#` 与 `//`)：只认 `#` 的话,TypeScript/JS 文件永远标注不上,这道闸在前端项目里
+# 会对每个非正式区文件稳定误报——而误报的修法(往 .ts 里写 `#`)本身是语法错误。
+COMMENT = r"(?:#|//)"
+TEMP = re.compile(rf"{COMMENT}\s*lifecycle:\s*(t0|temp)\b", re.IGNORECASE)
+DEVTOOL = re.compile(rf"{COMMENT}\s*lifecycle:\s*devtool\b", re.IGNORECASE)
+ALIAS = re.compile(rf"{COMMENT}\s*兼容别名")
 
 # 存量未标注清单(只减不增的条目型 baseline)：新增不在册的未标注文件 → 阻塞；在册的 → 挂账提醒。
 BASELINE_PATH = ROOT / ".ai-config" / "config" / "lifecycle_untagged.baseline.json"
@@ -88,9 +91,9 @@ def scan(path: Path) -> list[tuple[str, str]]:
     has_tag = is_temp or is_devtool
     findings: list[tuple[str, str]] = []
     if is_devtool and devtools_dir() not in path.relative_to(ROOT).parts:
-        findings.append(("DEVTOOL-MISPLACED", "标 # lifecycle: devtool 必须住 devtools/，否则上提或改标 temp"))
+        findings.append(("DEVTOOL-MISPLACED", "标 `# lifecycle: devtool`(TS 用 //)必须住 devtools/，否则上提或改标 temp"))
     if in_informal_zone(path) and not has_tag and not path.name.startswith("__"):
-        findings.append(("UNTAGGED", "非正式区文件缺 # lifecycle: 身份标注(temp/t0 临时件，或 devtool 住 devtools/)"))
+        findings.append(("UNTAGGED", "非正式区文件缺 `# lifecycle:` 身份标注(TS 用 //；temp/t0 临时件，或 devtool 住 devtools/)"))
     return findings
 
 

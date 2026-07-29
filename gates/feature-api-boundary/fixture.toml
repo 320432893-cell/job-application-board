@@ -1,2 +1,4 @@
 tools = ["inventory-closure"]
 violates = "跨 feature 直接 import 对方内部文件，绕过了对方的 api.py"
+# 这道闸的判据落在源码图上,样本必须是本项目声明的语言写的;另有一份 -ts 双胞胎。
+language = "python"

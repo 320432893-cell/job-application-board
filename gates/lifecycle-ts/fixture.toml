@@ -1,0 +1,4 @@
+tools = ["lifecycle-changed", "lifecycle"]
+violates = "非正式区(probes/)新增 TypeScript 文件但没有 `// lifecycle:` 身份标注"
+# Python 那份双胞胎在 gates/lifecycle。TS 的注释符是 //,闸两种都认。
+language = "typescript"

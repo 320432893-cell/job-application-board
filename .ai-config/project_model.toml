@@ -8,7 +8,9 @@ architecture = "modular-monolith"
 [[languages]]
 id = "typescript"
 suffixes = [".ts", ".tsx"]
-include_globs = ["src/**/*.ts", "src/**/*.tsx"]
+# probes/ 也要收:它在下面被声明成 informal 区,但不在 include_globs 里的话一个文件都进不了
+# 导入图 —— 区声明了却永远扫不到,lifecycle 这类只看图的闸在这里就是个摆设(静默不检查)。
+include_globs = ["src/**/*.ts", "src/**/*.tsx", "probes/**/*.ts", "probes/**/*.tsx"]
 
 [governance]
 # 接管态:历史债只登记不放大。三份基线出厂都是空的——这个项目没有 Python 债,

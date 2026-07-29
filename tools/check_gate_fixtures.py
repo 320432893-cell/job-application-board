@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 
 import baseline_policy
@@ -91,18 +92,22 @@ def planted_names(fixture: Fixture) -> list[str]:
     return [str(path.relative_to(tree)) for path in sorted(tree.rglob("*")) if path.is_file()]
 
 
-def fixture_in_scope(fixture: Fixture) -> bool:
-    """样本种下去之后,本项目的闸看得见它吗?看不见就别断言"必须被拦住"。
+def sample_is_visible(fixture: Fixture) -> bool:
+    """样本种下去之后,本项目的扫描范围里有它吗?
 
-    样本树的路径写死在模板里(src/project/features/…)。接管态项目布局不同时,种下去的 .py
-    落在任何声明的范围之外,闸扫不到 → 稳定误红,红的还是个假问题。
+    这个判断**只用来给失败分类,不用来决定跑不跑**。上一版拿它当跳过条件,结果预测错了三次:
+    实测(强行种下去的探针)backend-contracts / backend-contracts-changed / detect-secrets
+    在纯 TS 仓里明明拦得住——它们读的是模型声明和文件字节,根本不看源码图,却因为样本文件是
+    .py 被判成"看不见"而跳过,白欠了三条账。
+
+    所以现在的规矩是:能跑的都种下去跑,退 0 了再回头问"闸是真没牙,还是压根没看见这个样本"。
+    别预测,按结果分类——预测错的代价是假绿或假账,跑一遍的代价只是几秒。
 
     可见性按样本文件的类别分:
-      源码类(path_kind = python/source)→ 必须落在 languages.include_globs 里;
       依赖清单类 → 样本自己声明 requires = "dependency",按 contracts.dependency_files 判
         (纯 TS 仓的清单是 package.json,种一份 requirements.txt 进去谁也不会看);
-      其余(文档、边车配置)→ 布局无关,一律跑。
-    只有需要的样本才写 requires,不是每个样本都背一个字段——判据能从文件类别推出来就别让人抄。
+      源码类(path_kind = python/source)→ 必须落在 languages.include_globs 里;
+      其余(文档、边车配置)→ 布局无关,一律算看得见。
     """
     names = planted_names(fixture)
     if not names:
@@ -147,12 +152,16 @@ def required_tools(registry: dict) -> dict[str, str]:
     return required
 
 
+@dataclass
 class Fixture:
-    """One bad sample plus the set of tools that must all reject it."""
+    """One bad sample plus the set of tools that must all reject it。字段随 fixture.toml 增长,用 dataclass 免得参数越加越多。"""
 
-    def __init__(self, directory: Path, tools: list[str], violates: str, *, needs_index: bool, requires: str = "") -> None:
-        self.directory, self.tools, self.violates = directory, tools, violates
-        self.needs_index, self.requires = needs_index, requires
+    directory: Path
+    tools: list[str]
+    violates: str
+    needs_index: bool = False
+    requires: str = ""
+    language: str = ""
 
     @property
     def tree(self) -> Path:
@@ -184,7 +193,18 @@ def load_fixtures() -> list[Fixture]:
         requires = str(spec.get("requires", "")).strip()
         if requires not in {"", "dependency"}:
             raise SystemExit(f"[fixtures] {spec_path} requires 只认 'dependency'(留空=按样本文件类别自动判)")
-        fixtures.append(Fixture(spec_path.parent, tools, violates, needs_index=bool(spec.get("stage")), requires=requires))
+        # language:这份样本是用哪门语言写的。同一道闸可以有 Python 和 TypeScript 两份样本,
+        # 各自只在声明了那门语言的项目里种下去 —— 一份样本走天下是做不到的,闸的判据本身就带语言。
+        fixtures.append(
+            Fixture(
+                spec_path.parent,
+                tools,
+                violates,
+                needs_index=bool(spec.get("stage")),
+                requires=requires,
+                language=str(spec.get("language", "")).strip(),
+            )
+        )
     return fixtures
 
 
@@ -269,6 +289,29 @@ def index_is_clean() -> bool:
     return git(["diff", "--cached", "--quiet"]) == 0
 
 
+def classify(fixture: Fixture, results: dict[str, int], exercised: set[str]) -> list[str]:
+    """按退出码给每个工具定性,顺带记下"谁真的被样本考过"。
+
+    三种结局,少一种就会退化成假信号:
+      拦住了      → 这道闸有牙,记进 exercised。
+      放过去了 + 样本看得见 → 真没牙,红。
+      放过去了 + 样本看不见 → 证明不了任何事,**不**记进 exercised,于是落进覆盖欠账要求登记。
+    最后那条是关键:既不能当它有牙(假绿),也不能当它没牙(假红)。
+    """
+    visible, problems = sample_is_visible(fixture), []
+    for tool, code in sorted(results.items()):
+        if code != 0:
+            sys.stdout.write(f"[fixtures] {tool}: blocked ({fixture.violates})\n")
+            exercised.add(tool)
+        elif visible:
+            sys.stdout.write(f"[fixtures] {tool}: LET IT THROUGH ({fixture.violates})\n")
+            exercised.add(tool)
+            problems.append(f"`{tool}` exited 0 on a sample that violates: {fixture.violates}")
+        else:
+            sys.stdout.write(f"[fixtures] {tool}: 样本不在本项目扫描范围内,证明不了这道闸有没有牙\n")
+    return problems
+
+
 def main() -> int:
     registry = load_registry()
     fixtures, required = load_fixtures(), required_tools(registry)
@@ -292,11 +335,11 @@ def main() -> int:
             continue
         # 样本本身是 Python 代码,针对的工具在纯 TS 仓全都原地跳过 → 种下去谁也拦不住,
         # 断言"必须退非 0"会稳定误红。显式跳过,不静默通过。
+        if fixture.language and fixture.language not in declared:
+            sys.stdout.write(f"[fixtures] {label}: SKIPPED (样本是 {fixture.language} 写的,本项目没声明这门语言)\n")
+            continue
         if not set(fixture.tools) & applicable:
             sys.stdout.write(f"[fixtures] {label}: SKIPPED (样本针对的工具在本项目都不适用)\n")
-            continue
-        if not fixture_in_scope(fixture):
-            sys.stdout.write(f"[fixtures] {label}: SKIPPED (样本树不在本项目声明的源码范围里,种下去闸也扫不到)\n")
             continue
         if fixture.needs_index and not index_is_clean():
             sys.stdout.write(f"[fixtures] {label}: SKIPPED (需要暂存样本但 git 索引非空;先提交或 stash 后重跑)\n")
@@ -313,11 +356,7 @@ def main() -> int:
             if fixture.needs_index and created:
                 git(["reset", "-q", "--", *[str(path.relative_to(ROOT)) for path in created if path.is_file()]])
             uproot(created)
-        for tool, code in sorted(results.items()):
-            sys.stdout.write(f"[fixtures] {tool}: {'blocked' if code else 'LET IT THROUGH'} ({fixture.violates})\n")
-            exercised.add(tool)
-            if code == 0:
-                failures.append(f"`{tool}` exited 0 on a sample that violates: {fixture.violates}")
+        failures.extend(classify(fixture, results, exercised))
 
     failures.extend(coverage_debt(required, exercised))
     if failures:

@@ -1,0 +1,5 @@
+tools = ["orphan-module"]
+violates = "新增模块没有任何调用方,也没登记预期消费者与可判定的清除条件"
+# orphan-module 判的是导入图上的入边,图是语言无关的,但样本必须是项目声明的语言写的,
+# 否则它进不了图 —— Python 那份双胞胎在 gates/orphan-module。
+language = "typescript"

@@ -95,5 +95,21 @@ import_roots = []
 may_import_zones = ["formal", "informal"]
 
 [contracts]
-contract_files = [".ai-config/**", "package.json", "tsconfig*.json", "vite.config.ts", "eslint.config.js"]
+# 闸自己的实现文件也是契约文件:改了检查器就该重跑契约核对。少了 tools/**,
+# rule-tool-contracts 会把每个工具的 configured_in 都报成"没被覆盖"(实测 27 条 ERROR)。
+contract_files = [
+    ".ai-config/**",
+    ".github/workflows/**",
+    ".gitignore",
+    ".pre-commit-config.yaml",
+    ".semgrep/**",
+    "tools/check.py",
+    "tools/gate.py",
+    "tools/*.py",
+    "package.json",
+    "package-lock.json",
+    "tsconfig*.json",
+    "vite.config.ts",
+    "eslint.config.js",
+]
 dependency_files = ["package.json", "package-lock.json"]

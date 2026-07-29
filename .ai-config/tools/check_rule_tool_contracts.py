@@ -25,6 +25,7 @@ for path in (TOOLS_DIR, RULE_TOOLS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 import rule_tool_registry_contracts  # noqa: E402
+from tooling_registry import applies_to_languages  # noqa: E402
 
 REGISTRY = ROOT / ".ai-config" / "config" / "tooling.registry.toml"
 PROJECT_MODEL = ROOT / ".ai-config" / "project_model.toml"
@@ -237,7 +238,15 @@ def check_tools(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None
     dev_packages = parse_dev_packages(load_toml(pyproject)) if pyproject.is_file() else None
     pre_commit_hooks = parse_pre_commit_hooks(root / ".pre-commit-config.yaml")
     pre_commit_config = load_pre_commit_config(root / ".pre-commit-config.yaml")
+    # 只核对"这个项目真会跑到"的工具。声明了 languages 的工具在没声明那门语言的项目里根本不会
+    # 被调用(见 check.py 的同一条判据),再去追问它的 .ruff.toml / pyproject.toml 在不在,报的是
+    # 纯噪音——实测纯 TS 仓被这类淹掉 10 条 ERROR,真问题反而看不见。
+    # 只裁这里:本函数问的是"这个工具在本项目里接好线了吗",对不适用的工具无意义;而 registry
+    # 自身一致性那几条(检查脚本有没有登记、扫描命令卫生)与语言无关,不能跟着裁。
+    declared = {str(lang.get("id", "")) for lang in load_project_model().get("languages", [])}
     for tool in registry.get("tools", []):
+        if not applies_to_languages(tool, declared):
+            continue
         tool_id = tool["id"]
         package = tool.get("package")
         required_paths = {str(path) for path in tool.get("required_paths", [])}
@@ -256,8 +265,9 @@ def check_tools(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None
                 issues.append(Issue("ERROR", f"tool {tool_id}: pre-commit hook missing: {pre_commit_hook}"))
             hook = find_pre_commit_hook(pre_commit_config, str(pre_commit_hook))
             hook_entry = str((hook or {}).get("entry") or "")
-            if hook_entry and f"tools/check.py {tool_id}" not in hook_entry:
-                issues.append(Issue("ERROR", f"tool {tool_id}: pre-commit hook `{pre_commit_hook}` entry must call tools/check.py {tool_id}"))
+            launcher = registry.get("metadata", {}).get("launch_entrypoint") or "tools/check.py"
+            if hook_entry and f"{launcher} {tool_id}" not in hook_entry:
+                issues.append(Issue("ERROR", f"tool {tool_id}: pre-commit hook `{pre_commit_hook}` entry must call {launcher} {tool_id}"))
         pre_commit_hook_bundle = tool.get("pre_commit_hooks", [])
         for hook_id in pre_commit_hook_bundle:
             if hook_id not in pre_commit_hooks:
@@ -355,14 +365,16 @@ def check_ci_semantics(root: pathlib.Path, issues: list[Issue]) -> None:
         issues.append(Issue("ERROR", "CI pytest can be skipped when tests/ is absent"))
 
 
-def _check_pre_commit_enforcement_wiring(root: pathlib.Path, entrypoint: str, issues: list[Issue]) -> None:
+def _check_pre_commit_enforcement_wiring(root: pathlib.Path, launcher: str, issues: list[Issue]) -> None:
     pre_commit = read_text(root / ".pre-commit-config.yaml")
     normalized_pre_commit = pre_commit.replace("\\", "")
 
     required_pre_commit_patterns = [
         r"id:\s*rule-tool-contracts",
-        r"entry:\s*uv run python tools/check\.py rule-tool-contracts",
-        re.escape(entrypoint),
+        # 只卡"喊的是启动入口 + 这个 tool id",不卡前面的 uv 参数:环境怎么挑是 launcher 的职责,
+        # 写进这里就等于把同一个事实抄第二遍,改一处必漏另一处。
+        rf"entry:.*{re.escape(launcher)} rule-tool-contracts",
+        re.escape(launcher),
         r"\.semgrep/",
         r"id:\s*ruff-staged",
         r"id:\s*dependency-change-approval",
@@ -379,12 +391,14 @@ def _check_pre_commit_enforcement_wiring(root: pathlib.Path, entrypoint: str, is
 
 
 def check_enforcement_wiring(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None:
-    entrypoint = registry.get("metadata", {}).get("unified_entrypoint", "tools/check.py")
-    _check_pre_commit_enforcement_wiring(root, entrypoint, issues)
+    metadata = registry.get("metadata", {})
+    entrypoint = metadata.get("unified_entrypoint", "tools/check.py")
+    launcher = metadata.get("launch_entrypoint", entrypoint)
+    _check_pre_commit_enforcement_wiring(root, launcher, issues)
     ci = read_text(root / ".github" / "workflows" / "ci.yml")
 
-    if f"uv run python {entrypoint} ci" not in ci:
-        issues.append(Issue("ERROR", f"CI must call unified entrypoint: uv run python {entrypoint} ci"))
+    if f"{launcher} ci" not in ci:
+        issues.append(Issue("ERROR", f"CI must call launch entrypoint: {launcher} ci"))
 
     entrypoint_text = read_text(root / entrypoint)
     if "ONCALL_ALLOW_DEPENDENCY_CHANGE" not in entrypoint_text:
@@ -394,7 +408,7 @@ def check_enforcement_wiring(root: pathlib.Path, registry: dict, issues: list[Is
     if "project_contract_patterns" not in entrypoint_text:
         issues.append(Issue("ERROR", "unified entrypoint must read contract triggers from project_model.contracts"))
     contract_files = set(load_project_model().get("contracts", {}).get("contract_files", []))
-    for path in (".importlinter", ".pre-commit-config.yaml", "tools/check.py"):
+    for path in (".importlinter", ".pre-commit-config.yaml", entrypoint, launcher):
         if path not in contract_files:
             issues.append(Issue("ERROR", f"project_model.contracts.contract_files missing trigger: {path}"))
 

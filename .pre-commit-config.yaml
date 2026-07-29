@@ -43,14 +43,14 @@ repos:
     hooks:
       - id: python-compile
         name: python compile smoke check
-        entry: uv run python tools/check.py python-compile
+        entry: uv run --no-project python tools/gate.py python-compile
         language: system
         pass_filenames: false
         types: [python]
 
       - id: basedpyright
         name: basedpyright (manual baseline)
-        entry: uv run python tools/check.py basedpyright
+        entry: uv run --no-project python tools/gate.py basedpyright
         language: system
         stages: [manual]
         types: [python]
@@ -60,14 +60,14 @@ repos:
 
       - id: ruff-staged
         name: ruff staged Python files
-        entry: uv run python tools/check.py ruff-staged
+        entry: uv run --no-project python tools/gate.py ruff-staged
         language: system
         pass_filenames: false
         types: [python]
 
       - id: import-linter
         name: import-linter (分层契约)
-        entry: uv run python tools/check.py import-linter
+        entry: uv run --no-project python tools/gate.py import-linter
         language: system
         pass_filenames: false
         # 任何 .py 改动都跑一遍(架构契约级,不该被跳)
@@ -75,7 +75,7 @@ repos:
 
       - id: lifecycle
         name: lifecycle identity tag (非正式区身份标注)
-        entry: uv run python tools/check.py lifecycle-changed
+        entry: uv run --no-project python tools/gate.py lifecycle-changed
         language: system
         pass_filenames: false
         # 只卡新增/改动的非正式区文件缺 # lifecycle: 身份标注;full sweep 在 CI 跑。
@@ -83,28 +83,28 @@ repos:
 
       - id: rule-tool-contracts
         name: rule/tool contract check
-        entry: uv run python tools/check.py rule-tool-contracts
+        entry: uv run --no-project python tools/gate.py rule-tool-contracts
         language: system
         pass_filenames: false
         files: ^(\.ai-config/.*|\.semgrep/.*|\.github/workflows/.*|\.pre-commit-config\.yaml|\.ruff\.toml|\.importlinter|\.gitignore|tools/.*\.py|pyproject\.toml|uv\.lock)$
 
       - id: dependency-change-approval
         name: dependency/lock change approval gate
-        entry: uv run python tools/check.py dependency-change-approval
+        entry: uv run --no-project python tools/gate.py dependency-change-approval
         language: system
         pass_filenames: false
         files: ^(pyproject\.toml|uv\.lock|requirements.*\.txt|.*/requirements.*\.txt|requirements\.lock|.*/requirements\.lock|package\.json|package-lock\.json)$
 
       - id: semgrep
         name: semgrep (project static guardrails)
-        entry: uv run python tools/check.py semgrep
+        entry: uv run --no-project python tools/gate.py semgrep
         language: system
         pass_filenames: false
         files: ^(.+\.py|\.semgrep/.+\.ya?ml)$
 
       - id: pip-audit
         name: pip-audit (dependency vulnerabilities)
-        entry: uv run python tools/check.py pip-audit
+        entry: uv run --no-project python tools/gate.py pip-audit
         language: system
         pass_filenames: false
         stages: [manual]

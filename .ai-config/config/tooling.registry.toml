@@ -9,7 +9,13 @@ owner_rule = ".ai-config/AGENTS.md"
 # 放在 docs/ 就会变成"受管清单里断言了一个接管时根本不会落地的路径"。
 human_doc = ".ai-config/TOOLING_CONTRACTS.md"
 checker = ".ai-config/tools/check_rule_tool_contracts.py"
+# 两个入口是两件事,别合并:
+#   unified_entrypoint —— 命令的实现在哪(检查器读它的正文,确认每个 tool id 都被分发)。
+#   launch_entrypoint  —— pre-commit / CI 该喊谁。它只负责挑 Python 环境,再转给上面那个。
+# 合成一个就等于假设"闸的实现文件本身跑得起来",而接管态的纯 TS/Go 仓根本没有能 import
+# pydantic 的环境——正是那个假设让接管后每次 commit 都被拦下。
 unified_entrypoint = "tools/check.py"
+launch_entrypoint = "tools/gate.py"
 changed_event_kinds = ["python", "source", "ruff_python", "code", "contract", "backend_contract", "test"]
 
 [metadata.capability_cli_owners]

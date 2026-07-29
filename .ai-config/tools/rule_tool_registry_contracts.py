@@ -484,7 +484,13 @@ def check(root: pathlib.Path, registry: dict, issues: list[Any], issue_type: typ
         for item in load_project_model(root).get("contracts", {}).get("contract_files", [])
         if str(item).strip()
     }
+    # 只核对本项目真会跑到的工具:声明了 languages 的工具在没声明那门语言的项目里根本不会被调用,
+    # 追问它的 .ruff.toml / pyproject.toml 有没有进 contract_files 是纯噪音(实测纯 TS 仓 10 条)。
+    # 判据复用 check.py 跳过工具时用的同一个,不另写一份。
+    declared = {str(lang.get("id", "")) for lang in load_project_model(root).get("languages", [])}
     for tool in registry.get("tools", []):
+        if not tooling_registry.applies_to_languages(tool, declared):
+            continue
         _check_tool_command_targets(root, tool, contract_patterns, issues, issue_type)
         _check_tool_changed_declarations(tool, changed_event_kinds, issues, issue_type)
 

@@ -33,6 +33,9 @@ def registry_command_targets() -> set[str]:
         return set()
     registry = tomllib.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
     targets: set[str] = set()
+    # metadata 里点名的入口(实现入口 / 启动入口)同样是 CLI 入口,没人 import 它们是对的。
+    metadata = registry.get("metadata", {})
+    targets.update(str(metadata[key]) for key in ("unified_entrypoint", "launch_entrypoint") if metadata.get(key))
     for tool in registry.get("tools", []):
         for field in ("entrypoint_commands", "ci_commands", "manual_commands"):
             for command in tool.get(field, []):

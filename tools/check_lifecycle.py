@@ -91,9 +91,13 @@ def scan(path: Path) -> list[tuple[str, str]]:
     has_tag = is_temp or is_devtool
     findings: list[tuple[str, str]] = []
     if is_devtool and devtools_dir() not in path.relative_to(ROOT).parts:
-        findings.append(("DEVTOOL-MISPLACED", "标 `# lifecycle: devtool`(TS 用 //)必须住 devtools/，否则上提或改标 temp"))
+        findings.append(
+            ("DEVTOOL-MISPLACED", "标 `# lifecycle: devtool`(TS 用 //)必须住 devtools/，否则上提或改标 temp")
+        )
     if in_informal_zone(path) and not has_tag and not path.name.startswith("__"):
-        findings.append(("UNTAGGED", "非正式区文件缺 `# lifecycle:` 身份标注(TS 用 //；temp/t0 临时件，或 devtool 住 devtools/)"))
+        findings.append(
+            ("UNTAGGED", "非正式区文件缺 `# lifecycle:` 身份标注(TS 用 //；temp/t0 临时件，或 devtool 住 devtools/)")
+        )
     return findings
 
 

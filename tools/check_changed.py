@@ -74,14 +74,28 @@ def _run_python_and_source_items(
 
 def _run_ruff_items(env: Mapping[str, Any], ruff_python_paths: list[Any]) -> int:
     status = 0
-    status = env["run_command"](
-        "changed:ruff-check",
-        ["uv", "run", "ruff", "check", "--no-fix", "--force-exclude", *[env["rel"](path) for path in ruff_python_paths]],
-    ) or status
-    status = env["run_command"](
-        "changed:ruff-format",
-        ["uv", "run", "ruff", "format", "--check", *[env["rel"](path) for path in ruff_python_paths]],
-    ) or status
+    status = (
+        env["run_command"](
+            "changed:ruff-check",
+            [
+                "uv",
+                "run",
+                "ruff",
+                "check",
+                "--no-fix",
+                "--force-exclude",
+                *[env["rel"](path) for path in ruff_python_paths],
+            ],
+        )
+        or status
+    )
+    status = (
+        env["run_command"](
+            "changed:ruff-format",
+            ["uv", "run", "ruff", "format", "--check", *[env["rel"](path) for path in ruff_python_paths]],
+        )
+        or status
+    )
     return _run_stage_items(env, "ruff_python") or status
 
 

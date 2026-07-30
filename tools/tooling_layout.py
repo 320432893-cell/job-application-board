@@ -290,6 +290,26 @@ def is_ignored_path(path: pathlib.Path) -> bool:
     return is_relative_path_ignored(rel(path))
 
 
+def first_party_modules() -> tuple[str, ...]:
+    """支撑区里那批走 sys.path 导入的顶层模块名。
+
+    deptry 只把打包声明里的源码目录当第一方,于是 tools/ 与 .ai-config/tools/ 里的模块被报成
+    "imported but missing from the dependency definitions" —— 实测 78 条里 67 条都是这个假阳。
+    名单从磁盘派生,不写进 pyproject:枚举的那份每加一个检查器就会漏一次,而漏了没人会发现。
+    """
+    names: set[str] = set()
+    for directory in support_dirs():
+        base = ROOT / directory
+        if not base.is_dir():
+            continue
+        names.update(path.stem for path in base.glob("*.py") if path.stem != "__init__")
+    return tuple(sorted(names))
+
+
+def known_first_party_flags() -> tuple[str, ...]:
+    return tuple(flag for name in first_party_modules() for flag in ("--known-first-party", name))
+
+
 PLACEHOLDER_VALUES = {
     "{fixed_quality_dirs}": fixed_quality_dirs,
     "{fixed_quality_paths}": fixed_quality_paths,
@@ -304,9 +324,19 @@ PLACEHOLDER_VALUES = {
 }
 
 
+# 展开成 CLI 参数(不是路径)的占位符:不能过 existing_paths —— 那一层是给路径清单去掉不存在项用的,
+# 拿它筛 `--known-first-party` 这种旗标会把整串吃掉。
+PLACEHOLDER_FLAGS = {
+    "{known_first_party_flags}": known_first_party_flags,
+}
+
+
 def expand_args(args: Sequence[str]) -> list[str]:
     expanded: list[str] = []
     for arg in args:
+        if flags := PLACEHOLDER_FLAGS.get(arg):
+            expanded.extend(flags())
+            continue
         getter = PLACEHOLDER_VALUES.get(arg)
         if getter is None:
             expanded.append(arg)

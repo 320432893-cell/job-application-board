@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import argparse
-import functools
 import json
 import os
 import subprocess
@@ -22,6 +21,7 @@ import error_report
 import lang_go
 import lang_python
 import lang_typescript
+from git_changes import changed_source_names, removed_source_names
 from inventory_model_coverage import quality_coverage_violations
 from pathspec import GitIgnoreSpec, PathSpec
 from project_model import (
@@ -59,64 +59,6 @@ def load_registry() -> dict:
     return tomllib.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
 
 
-def git(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", "-c", "core.quotePath=false", *args], cwd=ROOT, text=True, capture_output=True, check=False)
-
-
-@functools.cache
-def git_prefix() -> str:
-    proc = git(["rev-parse", "--show-prefix"])
-    return proc.stdout.strip().strip("/")
-
-
-def strip_git_prefix(path_name: str) -> str:
-    prefix = git_prefix()
-    if prefix and path_name.startswith(f"{prefix}/"):
-        return path_name[len(prefix) + 1 :]
-    return path_name
-
-
-def changed_file_names(pathspecs: list[str] | tuple[str, ...] = ()) -> set[str]:
-    names: set[str] = set()
-    path_args = ["--", *pathspecs] if pathspecs else []
-    for args in (
-        ["diff", "--relative", "--name-only", "--diff-filter=ACMR", *path_args],
-        ["diff", "--relative", "--cached", "--name-only", "--diff-filter=ACMR", *path_args],
-        ["ls-files", "--others", "--exclude-standard", *path_args],
-    ):
-        proc = git(args)
-        if proc.returncode != 0:
-            continue
-        names.update(strip_git_prefix(line.strip()) for line in proc.stdout.splitlines() if line.strip())
-    return {name for name in names if (ROOT / name).exists()}
-
-
-def changed_source_names() -> set[str]:
-    """改动过的源码文件名。后缀按模型声明取,写死 *.py 会让非 Python 项目的整个 changed 档
-    静默不检查(候选清单恒空 → 每道 *-changed 闸都绿)。判据与证据见 tests/test_changed_scope_languages.py。"""
-    suffixes = source_suffixes(load_project_model())
-    names = changed_file_names(tuple(f"*{suffix}" for suffix in suffixes))
-    return {name for name in names if PurePosixPath(name).suffix in suffixes}
-
-
-def removed_source_names() -> set[str]:
-    suffixes = source_suffixes(load_project_model())  # 同理:不写死 *.py,后缀跟着模型走
-    globs = [f"*{suffix}" for suffix in suffixes]
-    names: set[str] = set()
-    for scope in ([], ["--cached"]):
-        base = ["diff", "--relative", *scope]
-        proc = git([*base, "--name-only", "--diff-filter=D", "--", *globs])
-        if proc.returncode == 0:
-            names.update(strip_git_prefix(line.strip()) for line in proc.stdout.splitlines() if line.strip())
-        proc = git([*base, "--name-status", "--diff-filter=R", "--", *globs])
-        if proc.returncode == 0:
-            for line in proc.stdout.splitlines():
-                parts = line.split("\t")
-                if len(parts) >= RENAME_NAME_STATUS_FIELDS:
-                    names.add(strip_git_prefix(parts[1].strip()))
-    return {name for name in names if PurePosixPath(name).suffix in suffixes}
-
-
 def pathspec_from(patterns: list[str]) -> PathSpec:
     return GitIgnoreSpec.from_lines(patterns)
 
@@ -137,9 +79,7 @@ def is_workspace_member_path(path_name: str, model: ProjectModel) -> bool:
 
 def member_for_path(path_name: str, model: ProjectModel) -> str:
     matches = [
-        (len(member.root.strip().strip("/")), member.id)
-        for member in model.members
-        if is_under(path_name, member.root)
+        (len(member.root.strip().strip("/")), member.id) for member in model.members if is_under(path_name, member.root)
     ]
     if not matches:
         return "root"
@@ -192,8 +132,7 @@ def classify(path_name: str, model: ProjectModel) -> tuple[str, str]:
     matches: list[tuple[int, int, Zone, str]] = []
     for zone in model.zones:
         excluded = any(
-            selector.kind == "exclude" and selector_matches(path_name, selector)
-            for selector in zone.selectors
+            selector.kind == "exclude" and selector_matches(path_name, selector) for selector in zone.selectors
         )
         if excluded:
             continue
@@ -343,7 +282,12 @@ class ModuleResolver:
         target_path = lang_python.relative_import_target(source_name, item, ROOT)
         record = self.by_path.get(target_path)
         if not record:
-            return {"path": target_path, "member": member_for_path(target_path, self.model), "zone": classify(target_path, self.model)[0], "resolved_by": "relative-path"}
+            return {
+                "path": target_path,
+                "member": member_for_path(target_path, self.model),
+                "zone": classify(target_path, self.model)[0],
+                "resolved_by": "relative-path",
+            }
         return {
             "path": target_path,
             "member": record.get("member"),
@@ -389,7 +333,11 @@ def full_python_candidates(model: ProjectModel, ignored: PathSpec) -> list[Path]
 def iter_python_files(model: ProjectModel, scope: str = "full") -> list[Path]:
     ignored = pathspec_from(model.ignore.patterns)
     paths: list[Path] = []
-    candidates = [ROOT / name for name in changed_source_names()] if scope == "changed" else full_python_candidates(model, ignored)
+    candidates = (
+        [ROOT / name for name in changed_source_names()]
+        if scope == "changed"
+        else full_python_candidates(model, ignored)
+    )
     for path in candidates:
         if not path.exists() or path.suffix not in source_suffixes(model):
             continue
@@ -508,7 +456,7 @@ def go_package_edges(model: ProjectModel, file_records: list[dict[str, object]])
             "预期能取到该语言的导入图;实际取不到 —— 依赖它的闸(zone 越界/未知依赖/零消费者)"
             "不敢在没有图的情况下放行,所以整体停下",
             "装好 go 工具链、并确认仓库是有效的 go module(go.mod 存在);"
-            "若本项目其实没有 Go 代码,把 project_model 的 [[languages]] 里 id=\"go\" 那段删掉",
+            '若本项目其实没有 Go 代码,把 project_model 的 [[languages]] 里 id="go" 那段删掉',
         ) from exc
     files_by_dir: dict[str, list[dict[str, object]]] = {}
     for record in go_files:
@@ -518,16 +466,16 @@ def go_package_edges(model: ProjectModel, file_records: list[dict[str, object]])
         source_dir, target_dir = str(edge["source_dir"]), str(edge["target_dir"])
         edges.extend(
             {
-                    "kind": "import",
-                    "source": record["path"],
-                    "source_member": record.get("member"),
-                    "source_zone": record.get("zone"),
-                    "target_path": target_dir,
-                    "target_member": member_for_path(target_dir, model),
-                    "target_root": str(edge["import_path"]),
-                    "target_zone": classify(target_dir, model)[0],
-                    "resolved_by": "go-package",
-                    "import_kind": "import",
+                "kind": "import",
+                "source": record["path"],
+                "source_member": record.get("member"),
+                "source_zone": record.get("zone"),
+                "target_path": target_dir,
+                "target_member": member_for_path(target_dir, model),
+                "target_root": str(edge["import_path"]),
+                "target_zone": classify(target_dir, model)[0],
+                "resolved_by": "go-package",
+                "import_kind": "import",
                 "module": str(edge["import_path"]),
             }
             for record in files_by_dir.get(source_dir, [])
@@ -552,7 +500,7 @@ def typescript_file_edges(model: ProjectModel, file_records: list[dict[str, obje
             "不敢在没有图的情况下放行,所以整体停下",
             "装好 Node 与 npx;若报 EACCES 且提到 root-owned files,那是 npm 缓存被 root 占了,"
             "跑 `sudo chown -R $(id -u):$(id -g) ~/.npm` 修;"
-            "若本项目其实没有 TS/JS 代码,把 [[languages]] 里 id=\"typescript\" 那段删掉",
+            '若本项目其实没有 TS/JS 代码,把 [[languages]] 里 id="typescript" 那段删掉',
         ) from exc
     edges: list[dict[str, object]] = []
     for edge in lang_typescript.file_edges(report):
@@ -607,7 +555,9 @@ def build_inventory(scope: str = "full") -> dict:
     if scope == "changed":
         violations.extend(unknown_dependency_violations(edges, zones))
         if removed_paths:
-            full_records = [file_record_for_path(path, model, parse=True) for path in iter_python_files(model, scope="full")]
+            full_records = [
+                file_record_for_path(path, model, parse=True) for path in iter_python_files(model, scope="full")
+            ]
             resolver_with_deleted = ModuleResolver(model, [*full_records, *deleted_records])
             full_edges = edges_for_records(full_records, resolver_with_deleted, import_zones)
             violations.extend(deleted_dependency_violations(full_edges, set(removed_paths), zones))
@@ -620,7 +570,9 @@ def build_inventory(scope: str = "full") -> dict:
             "stages": tool.get("stages", []),
             "changed_adapter": bool(tool.get("changed_adapter")),
             "utility": bool(tool.get("utility")),
-            "has_command": bool(tool.get("entrypoint_commands") or tool.get("manual_commands") or tool.get("ci_commands")),
+            "has_command": bool(
+                tool.get("entrypoint_commands") or tool.get("manual_commands") or tool.get("ci_commands")
+            ),
         }
         for tool in registry.get("tools", [])
     ]
@@ -641,7 +593,14 @@ def build_inventory(scope: str = "full") -> dict:
 
 
 VIOLATION_FIELDS = (
-    "source", "source_member", "source_zone", "target_path", "target_member", "target_root", "target_zone", "module",
+    "source",
+    "source_member",
+    "source_zone",
+    "target_path",
+    "target_member",
+    "target_root",
+    "target_zone",
+    "module",
 )
 EDGE_DEDUPE_FIELDS = ("source", "target_path", "target_root", "target_zone", "module")
 PATH_DEDUPE_FIELDS = ("source", "target_path", "module")
@@ -742,7 +701,9 @@ def managed_violation_key(violation: dict[str, object]) -> dict[str, str]:
     }
 
 
-def apply_managed_violation_baseline(violations: list[dict[str, object]], model: ProjectModel) -> list[dict[str, object]]:
+def apply_managed_violation_baseline(
+    violations: list[dict[str, object]], model: ProjectModel
+) -> list[dict[str, object]]:
     if model.metadata.governance_mode != "managed":
         return violations
     baseline_name = managed_baseline_path(model.governance.inventory_violation_baseline)
@@ -763,7 +724,9 @@ def apply_managed_violation_baseline(violations: list[dict[str, object]], model:
             prior_allowed = prior_data["allowed"]
             if not isinstance(prior_allowed, list):
                 raise ValueError("allowed must be a list")  # noqa: TRY004, TRY301  同上：靠本地 raise 复用同一个 except 拼出 committed baseline 的 SystemExit 文案
-            prior_keys = {json.dumps(item, ensure_ascii=False, sort_keys=True) for item in prior_allowed if isinstance(item, dict)}
+            prior_keys = {
+                json.dumps(item, ensure_ascii=False, sort_keys=True) for item in prior_allowed if isinstance(item, dict)
+            }
         except (ValueError, json.JSONDecodeError, KeyError) as exc:
             raise SystemExit(f"[inventory] invalid committed managed violation baseline: {exc}") from exc
     else:
@@ -831,8 +794,7 @@ def deleted_dependency_violations(
             edge_violation(
                 edge,
                 "deleted_dependency_violation",
-                f"{edge.get('source')}: imports deleted Python module "
-                f"`{target_path}` via `{edge.get('module')}`",
+                f"{edge.get('source')}: imports deleted Python module `{target_path}` via `{edge.get('module')}`",
                 source_zone=source_zone_id,
                 target_path=target_path,
             )
@@ -863,9 +825,7 @@ def check_model_health(inventory: dict) -> list[str]:
         if not has_entries:
             continue
         if zone.traits:
-            watched_counts.append(
-                f"{zone.id}={zone_counts.get(zone.id, 0)} traits={','.join(sorted(zone.traits))}"
-            )
+            watched_counts.append(f"{zone.id}={zone_counts.get(zone.id, 0)} traits={','.join(sorted(zone.traits))}")
         if zone.requires_reason and not zone.reason.strip():
             issues.append(f"zone.{zone.id}: requires_reason zone needs reason")
         if not zone.revisit_required:
@@ -912,6 +872,7 @@ def main(argv: list[str] | None = None) -> int:
     for issue in issues:
         print(f"  - {issue}", file=sys.stderr)
     return 1
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

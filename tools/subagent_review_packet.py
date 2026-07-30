@@ -80,7 +80,11 @@ def capability_catalog() -> list[dict[str, Any]]:
                 "parent_tool": str(tool.get("parent_tool") or ""),
                 "changed_adapter": bool(tool.get("changed_adapter")),
                 "stages": [str(item) for item in tool.get("stages", [])],
-                "commands": [str(command) for field in ("entrypoint_commands", "ci_commands", "manual_commands") for command in tool.get(field, [])],
+                "commands": [
+                    str(command)
+                    for field in ("entrypoint_commands", "ci_commands", "manual_commands")
+                    for command in tool.get(field, [])
+                ],
                 "purpose": str(tool.get("purpose") or ""),
             }
         )
@@ -118,7 +122,10 @@ def build_context(stage: str) -> dict[str, Any]:
     discovery_tool.write_report(discovery, discovery_snapshot)
     bootstrap_suggestions = (bootstrap or {}).get("model_suggestions", {})
     bootstrap_detail_paths = (
-        {key: rel(bootstrap_snapshot.with_name(f"{bootstrap_snapshot.stem}.{key}.json")) for key in bootstrap_tool.DETAIL_KEYS}
+        {
+            key: rel(bootstrap_snapshot.with_name(f"{bootstrap_snapshot.stem}.{key}.json"))
+            for key in bootstrap_tool.DETAIL_KEYS
+        }
         if bootstrap is not None
         else {}
     )
@@ -191,7 +198,15 @@ def prompt_for(review: dict[str, Any], context: dict[str, Any]) -> str:
     focus = [str(item) for item in review.get("focus", [])]
     questions = [str(item) for item in review.get("questions", [])]
     foreign = context.get("governance_mode", "native") == "foreign"
-    stage_name = "变更影响分析" if foreign and stage == "stage" else "项目理解与维护分析" if foreign else "阶段审查" if stage == "stage" else "大扫除审查"
+    stage_name = (
+        "变更影响分析"
+        if foreign and stage == "stage"
+        else "项目理解与维护分析"
+        if foreign
+        else "阶段审查"
+        if stage == "stage"
+        else "大扫除审查"
+    )
     mode_instruction = (
         "这是外部项目：只做理解和维护建议，不给合规结论、不要求改目录、不把未建模或旧债当缺陷；结论分为机器事实、高置信推断、待确认。"
         if foreign
@@ -298,8 +313,10 @@ def main(argv: list[str] | None = None) -> int:
     for item in result["reviews"]:
         first_focus = next(iter(focus_by_id.get(item["id"], [])), "")
         print(f"  · {item.get('title') or item['id']!s:<{width}}  {first_focus}")
-    print(f"  → 开审(把这句发给 AI):读 {OUTPUT_ROOT.relative_to(ROOT)}/{args.stage}/ 下的 "
-          f"{len(result['reviews'])} 份提示词并逐条执行,把未坐实的标成候选")
+    print(
+        f"  → 开审(把这句发给 AI):读 {OUTPUT_ROOT.relative_to(ROOT)}/{args.stage}/ 下的 "
+        f"{len(result['reviews'])} 份提示词并逐条执行,把未坐实的标成候选"
+    )
     return 0
 
 

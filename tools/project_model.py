@@ -262,11 +262,11 @@ class ProjectModel(StrictModel):
             and excluded_member_roots
             and sorted(legacy_member_roots) != sorted(excluded_member_roots)
         ):
-            errors.append(
-                "workspace.member_roots must match members.exclude_from_parent roots during migration"
-            )
+            errors.append("workspace.member_roots must match members.exclude_from_parent roots during migration")
         if legacy_member_roots and self.members and not excluded_member_roots:
-            errors.append("workspace.member_roots is legacy; declare those roots as members with exclude_from_parent=true")
+            errors.append(
+                "workspace.member_roots is legacy; declare those roots as members with exclude_from_parent=true"
+            )
         if errors:
             raise ValueError("; ".join(errors))
         return self
@@ -291,7 +291,9 @@ def _architecture_shape_errors(model: ProjectModel) -> list[str]:
         elif PurePosixPath(feature_root).is_absolute() or ".." in PurePosixPath(feature_root).parts:
             errors.append("architecture.feature_root must be a repository-relative directory")
         if not api_name:
-            errors.append("architecture.cross_feature_entrypoint is required for native/managed modular-monolith projects")
+            errors.append(
+                "architecture.cross_feature_entrypoint is required for native/managed modular-monolith projects"
+            )
         elif PurePosixPath(api_name).name != api_name:
             errors.append("architecture.cross_feature_entrypoint must be a bare filename, not a path")
         elif not api_name.endswith(tuple(source_suffixes(model))):
@@ -317,8 +319,7 @@ def _managed_governance_errors(model: ProjectModel) -> list[str]:
         if len(baseline_paths) != len(set(baseline_paths)):
             errors.append("managed baseline paths must be unique")
         errors.extend(
-            "managed baseline path must stay below .ai-config/config and end with .baseline.json: "
-            f"{baseline_path}"
+            f"managed baseline path must stay below .ai-config/config and end with .baseline.json: {baseline_path}"
             for baseline_path in baseline_paths
             if not is_safe_managed_baseline_path(baseline_path)
         )
@@ -396,9 +397,7 @@ def _member_errors(
         for entrypoint in member.entrypoints:
             entrypoint_ids.append(entrypoint.id)
             if entrypoint.member not in {member.id, "root"}:
-                errors.append(
-                    f"member.{member.id}.entrypoint.{entrypoint.id}.member must be `{member.id}` or `root`"
-                )
+                errors.append(f"member.{member.id}.entrypoint.{entrypoint.id}.member must be `{member.id}` or `root`")
             if not (entrypoint.file or entrypoint.module or entrypoint.command):
                 errors.append(f"member.{member.id}.entrypoint.{entrypoint.id} needs file, module, or command")
             errors.extend(
@@ -435,7 +434,10 @@ def _api_contract_errors(model: ProjectModel) -> list[str]:
             errors.append("contracts.api.export_command cannot be blank")
         if not model.contracts.api.compatibility_command.strip():
             errors.append("contracts.api.compatibility_command cannot be blank")
-        elif "{baseline}" not in model.contracts.api.compatibility_command or "{current}" not in model.contracts.api.compatibility_command:
+        elif (
+            "{baseline}" not in model.contracts.api.compatibility_command
+            or "{current}" not in model.contracts.api.compatibility_command
+        ):
             errors.append("contracts.api.compatibility_command must include {baseline} and {current}")
         if not model.contracts.api.source_globs:
             errors.append("contracts.api.source_globs is required to keep stage targeted")
@@ -505,14 +507,17 @@ def load_project_model(path: Path = MODEL_PATH) -> ProjectModel:
             # 声明是 .ai-config 相对的,必须过 managed_baseline_path() 才是仓库相对路径。
             # 这是同族的第四处漏点(另三处在 inventory x2 与 baseline_policy),接管真实项目时才炸出来。
             missing = [
-                item for item in model.governance.managed_baselines
+                item
+                for item in model.governance.managed_baselines
                 if not (path.parent.parent / managed_baseline_path(item)).is_file()
             ]
             if missing:
                 raise ValueError(f"managed baseline files missing: {missing}")  # noqa: TRY301
             baseline = path.parent.parent / managed_baseline_path(model.governance.inventory_violation_baseline)
             if not baseline.is_file():
-                raise ValueError(f"managed inventory violation baseline missing: {model.governance.inventory_violation_baseline}")  # noqa: TRY301
+                raise ValueError(  # noqa: TRY301 —— 与上面几处同族:抽成内部函数只换抛出位置,收益为零
+                    f"managed inventory violation baseline missing: {model.governance.inventory_violation_baseline}"
+                )
     except (OSError, tomllib.TOMLDecodeError, ValidationError, ValueError) as exc:
         raise SystemExit(f"[project-model] invalid: {exc}") from exc
     else:

@@ -175,7 +175,11 @@ def load_oversized_baseline() -> dict[str, dict[str, object]]:
         if isinstance(value, dict):
             normalized[str(path)] = value
         else:
-            normalized[str(path)] = {"lines": int(value), "reason": "legacy oversized baseline", "split_when": "next cleanup"}
+            normalized[str(path)] = {
+                "lines": int(value),
+                "reason": "legacy oversized baseline",
+                "split_when": "next cleanup",
+            }
     return normalized
 
 
@@ -214,7 +218,9 @@ def oversized_limit(entry: dict[str, object] | None) -> int | None:
         return None
 
 
-def classify_oversized(paths: list[pathlib.Path], threshold: int, baseline: dict[str, dict[str, object]]) -> tuple[list[str], list[str]]:
+def classify_oversized(
+    paths: list[pathlib.Path], threshold: int, baseline: dict[str, dict[str, object]]
+) -> tuple[list[str], list[str]]:
     """超限文件分流：返回 (阻塞消息, 挂账WARNING消息)。计数型棘轮只减不增。"""
     blocking: list[str] = []
     warn: list[str] = []
@@ -335,7 +341,9 @@ def main() -> int:
     parser.add_argument(
         "--changed", action="store_true", help="Only check changed, staged, and untracked Python files."
     )
-    parser.add_argument("--ci", action="store_true", help="Enforce oversized baseline ratchet across all quality files.")
+    parser.add_argument(
+        "--ci", action="store_true", help="Enforce oversized baseline ratchet across all quality files."
+    )
     args = parser.parse_args()
     if args.changed:
         return run_changed()

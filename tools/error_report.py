@@ -9,13 +9,7 @@ from __future__ import annotations
 
 
 def five_field(step: str, reason: str, expect_actual: str, fix: str, audience: str = "开发 / CI") -> str:
-    return (
-        f"{step}\n"
-        f"  原因:{reason}\n"
-        f"  预期 vs 现状:{expect_actual}\n"
-        f"  修复:{fix}\n"
-        f"  受众:{audience}"
-    )
+    return f"{step}\n  原因:{reason}\n  预期 vs 现状:{expect_actual}\n  修复:{fix}\n  受众:{audience}"
 
 
 def abort(step: str, reason: str, expect_actual: str, fix: str, audience: str = "开发 / CI") -> SystemExit:

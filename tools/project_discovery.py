@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence_extractors as evidence
+import git_changes
 import inventory as inventory_tool
 import tooling_registry
 from project_model import zone_traits_map
@@ -235,9 +236,7 @@ def _island_finding(key: str, group: dict[str, object]) -> dict[str, object] | N
     paths = sorted({str(item) for item in group["paths"]})
     imported_by = sorted({str(item) for item in group["imported_by"]})
     entrypoints = sorted({str(item) for item in group["entrypoints"]})
-    entrypoint_reasons = {
-        path: str(group["entrypoint_reasons"].get(path, "unknown")) for path in entrypoints
-    }
+    entrypoint_reasons = {path: str(group["entrypoint_reasons"].get(path, "unknown")) for path in entrypoints}
     test_imported_by = sorted({str(item) for item in group["test_imported_by"]})
     parse_errors = sorted({str(item) for item in group["parse_errors"]})
     unresolved_import_evidence = group["unresolved_import_evidence"]
@@ -280,9 +279,7 @@ def unclassified_islands(inventory: dict, project_roots: tuple[str, ...] = ()) -
     return [item for item in candidates if item is not None]
 
 
-def iter_unmodeled_source_files(
-    model: inventory_tool.ProjectModel, candidates: set[str] | None = None
-) -> list[str]:
+def iter_unmodeled_source_files(model: inventory_tool.ProjectModel, candidates: set[str] | None = None) -> list[str]:
     ignored = inventory_tool.pathspec_from(model.ignore.patterns)
     paths: list[str] = []
     if candidates is not None:
@@ -302,7 +299,9 @@ def iter_unmodeled_source_files(
         kept_dirs: list[str] = []
         for dirname in dirnames:
             child_name = dirname if not rel_dir else f"{rel_dir}/{dirname}"
-            if inventory_tool.is_workspace_member_path(child_name, model) or inventory_tool.is_ignored_directory(child_name, ignored):
+            if inventory_tool.is_workspace_member_path(child_name, model) or inventory_tool.is_ignored_directory(
+                child_name, ignored
+            ):
                 continue
             kept_dirs.append(dirname)
         dirnames[:] = kept_dirs
@@ -482,7 +481,7 @@ def build_report(scope: str = "full") -> dict[str, object]:
     findings: list[dict[str, object]] = []
     marker_groups = project_marker_groups(model) if scope == "full" else {}
     findings.extend(unclassified_islands(inventory, tuple(marker_groups)))
-    source_candidates = None if scope == "full" else inventory_tool.changed_file_names()
+    source_candidates = None if scope == "full" else git_changes.changed_file_names()
     findings.extend(unmodeled_source_structures(model, candidates=source_candidates))
     if scope == "full":
         findings.extend(iter_project_markers(marker_groups))
@@ -491,7 +490,9 @@ def build_report(scope: str = "full") -> dict[str, object]:
     findings.extend(temp_weight_bearing_findings(inventory, model))
     findings = [as_evidence_only(item) for item in findings]
     severity_order = {"critical": 0, "suspicious": 1, "observed": 2}
-    findings = sorted(findings, key=lambda item: (severity_order.get(str(item["severity"]), 9), str(item["kind"]), str(item["path"])))
+    findings = sorted(
+        findings, key=lambda item: (severity_order.get(str(item["severity"]), 9), str(item["kind"]), str(item["path"]))
+    )
     counts: dict[str, int] = {}
     for item in findings:
         severity = str(item["severity"])

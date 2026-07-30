@@ -176,7 +176,9 @@ def main(argv: list[str]) -> int:
         return 1 if exact else 0
 
     for stem_name, names, locs in sorted(hits):
-        sys.stderr.write(f"! [dup-symbol] 词根 '{stem_name}'(符号 {names})出现在多处: {locs} —— 清理候选，取代还是重复?\n")
+        sys.stderr.write(
+            f"! [dup-symbol] 词根 '{stem_name}'(符号 {names})出现在多处: {locs} —— 清理候选，取代还是重复?\n"
+        )
     if hits:
         sys.stderr.write(
             f"[dup-symbol] {len(hits)} 处历史/近似顶层符号碰撞（cleanup 提示）：同一能力两处=SSOT 双源嫌疑，"

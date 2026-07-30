@@ -88,6 +88,8 @@ PATH_HARDCODE_ASSIGNMENTS = {
     "DEVTOOLS_DIR",
 }
 DEFAULT_LAYOUT_LITERALS = {"app", "scripts", "tests", "tools"}
+
+
 @dataclass
 class Issue:
     severity: str
@@ -267,7 +269,12 @@ def check_tools(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None
             hook_entry = str((hook or {}).get("entry") or "")
             launcher = registry.get("metadata", {}).get("launch_entrypoint") or "tools/check.py"
             if hook_entry and f"{launcher} {tool_id}" not in hook_entry:
-                issues.append(Issue("ERROR", f"tool {tool_id}: pre-commit hook `{pre_commit_hook}` entry must call {launcher} {tool_id}"))
+                issues.append(
+                    Issue(
+                        "ERROR",
+                        f"tool {tool_id}: pre-commit hook `{pre_commit_hook}` entry must call {launcher} {tool_id}",
+                    )
+                )
         pre_commit_hook_bundle = tool.get("pre_commit_hooks", [])
         for hook_id in pre_commit_hook_bundle:
             if hook_id not in pre_commit_hooks:
@@ -340,9 +347,7 @@ def check_rule_tool_contracts_trigger(root: pathlib.Path, issues: list[Issue]) -
     for pattern in model.get("contracts", {}).get("dependency_files", []):
         sample = sample_path_from_model_pattern(str(pattern))
         if not dependency_compiled.search(sample):
-            issues.append(
-                Issue("ERROR", f"pre-commit dependency-change-approval files regex does not match: {sample}")
-            )
+            issues.append(Issue("ERROR", f"pre-commit dependency-change-approval files regex does not match: {sample}"))
 
 
 def sample_path_from_model_pattern(pattern: str) -> str:
@@ -553,7 +558,9 @@ def _check_project_model_agent_reviews(model: dict, issues: list[Issue]) -> None
         review_ids.append(review_id)
         for field in ("focus", "questions"):
             if not review.get(field, []):
-                issues.append(Issue("ERROR", f"project_model agent_review.{review_id}.{field} must be a non-empty list"))
+                issues.append(
+                    Issue("ERROR", f"project_model agent_review.{review_id}.{field} must be a non-empty list")
+                )
     issues.extend(
         Issue("ERROR", f"project_model agent_review id duplicated: {review_id}")
         for review_id in sorted({rid for rid in review_ids if review_ids.count(rid) > 1})
@@ -717,17 +724,13 @@ def check_code_layout_consumers(root: pathlib.Path, registry: dict, issues: list
                     issues.append(
                         Issue(
                             "ERROR",
-                        f"tool {tool.get('id')}.{field}: command hardcodes layout paths; use {{fixed_quality_dirs}}",
+                            f"tool {tool.get('id')}.{field}: command hardcodes layout paths; use {{fixed_quality_dirs}}",
+                        )
                     )
-                )
 
 
 def check_registered_check_scripts(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None:
-    configured = {
-        str(path)
-        for tool in registry.get("tools", [])
-        for path in tool.get("configured_in", [])
-    }
+    configured = {str(path) for tool in registry.get("tools", []) for path in tool.get("configured_in", [])}
     for path in sorted((root / "tools").glob("check_*.py")):
         relative = rel(path)
         if relative not in configured:
@@ -796,7 +799,10 @@ def check_detect_secrets_exclusions_agree(root: pathlib.Path, registry: dict, is
     合不了就至少别让它们静默分叉——实测分叉的后果是 pre-commit 绿、全量扫红,同一份文件两种结论。
     """
     command = " ".join(
-        str(item) for tool in registry.get("tools", []) if tool.get("id") == "detect-secrets" for item in tool.get("entrypoint_commands", [])
+        str(item)
+        for tool in registry.get("tools", [])
+        if tool.get("id") == "detect-secrets"
+        for item in tool.get("entrypoint_commands", [])
     )
     hook = find_pre_commit_hook(load_pre_commit_config(root / ".pre-commit-config.yaml"), "detect-secrets")
     excluded = str((hook or {}).get("exclude") or "")

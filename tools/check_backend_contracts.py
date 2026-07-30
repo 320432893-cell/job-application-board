@@ -42,7 +42,11 @@ def changed_names(root: Path) -> set[str]:
 
 
 def should_run(scope: str, globs: list[str], changed: set[str]) -> bool:
-    return scope == "full" or ".ai-config/project_model.toml" in changed or any(path_matches(name, globs) for name in changed)
+    return (
+        scope == "full"
+        or ".ai-config/project_model.toml" in changed
+        or any(path_matches(name, globs) for name in changed)
+    )
 
 
 def run_command(
@@ -51,7 +55,12 @@ def run_command(
     print(f"[backend-contracts] {label}")
     try:
         return subprocess.run(
-            shlex.split(command), cwd=ROOT, text=True, capture_output=capture_output, check=False, timeout=timeout_seconds
+            shlex.split(command),
+            cwd=ROOT,
+            text=True,
+            capture_output=capture_output,
+            check=False,
+            timeout=timeout_seconds,
         )
     except subprocess.TimeoutExpired:
         print(f"[backend-contracts] {label}: timed out after {timeout_seconds}s", file=sys.stderr)
@@ -116,11 +125,17 @@ def _database_regressions(previous: dict, current: Contracts) -> list[str]:
     previous_database = as_mapping(previous.get("database"))
     if previous_database and current.database is None:
         regressions.append("contracts.database was removed")
-    if previous_database and current.database and set(previous_database.get("source_globs", [])) - set(current.database.source_globs):
+    if (
+        previous_database
+        and current.database
+        and set(previous_database.get("source_globs", [])) - set(current.database.source_globs)
+    ):
         regressions.append("contracts.database.source_globs was narrowed")
     if previous_database and current.database:
         for field in ("kind", "check_command", "heads_command", "isolated_upgrade_command", "timeout_seconds"):
-            previous_value = previous_database.get(field, 120) if field == "timeout_seconds" else previous_database.get(field)
+            previous_value = (
+                previous_database.get(field, 120) if field == "timeout_seconds" else previous_database.get(field)
+            )
             if previous_value != getattr(current.database, field):
                 regressions.append(f"contracts.database.{field} changed")
     return regressions
@@ -128,7 +143,9 @@ def _database_regressions(previous: dict, current: Contracts) -> list[str]:
 
 def _health_regressions(previous: dict, current: Contracts) -> list[str]:
     regressions: list[str] = []
-    previous_health = {str(item.get("id")): item for item in previous.get("health_checks", []) if isinstance(item, dict)}
+    previous_health = {
+        str(item.get("id")): item for item in previous.get("health_checks", []) if isinstance(item, dict)
+    }
     current_health = {check.id: check for check in current.health_checks}
     for check_id, old in previous_health.items():
         new = current_health.get(check_id)
@@ -166,7 +183,12 @@ def check_api(model: ProjectModel, scope: str, changed: set[str]) -> int:
     if not snapshot.is_file():
         print(f"[backend-contracts] api: schema_file missing: {contract.schema_file}", file=sys.stderr)
         return 1
-    exported = run_command("api export", contract.export_command, timeout_seconds=getattr(contract, "timeout_seconds", 120), capture_output=True)
+    exported = run_command(
+        "api export",
+        contract.export_command,
+        timeout_seconds=getattr(contract, "timeout_seconds", 120),
+        capture_output=True,
+    )
     if exported is None:
         return 1
     if exported.returncode != 0:
@@ -188,7 +210,9 @@ def check_api(model: ProjectModel, scope: str, changed: set[str]) -> int:
     if baseline is not None:
         cache_dir = ROOT / ".cache"
         cache_dir.mkdir(exist_ok=True)
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".json", prefix="api-baseline-", dir=cache_dir) as handle:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", suffix=".json", prefix="api-baseline-", dir=cache_dir
+        ) as handle:
             handle.write(baseline)
             handle.flush()
             try:
@@ -196,7 +220,9 @@ def check_api(model: ProjectModel, scope: str, changed: set[str]) -> int:
             except KeyError as exc:
                 print(f"[backend-contracts] api: unknown compatibility placeholder: {exc}", file=sys.stderr)
                 return 1
-            compatibility = run_command("api compatibility", command, timeout_seconds=getattr(contract, "timeout_seconds", 120))
+            compatibility = run_command(
+                "api compatibility", command, timeout_seconds=getattr(contract, "timeout_seconds", 120)
+            )
             if compatibility is None:
                 return 1
             if compatibility.returncode != 0:
@@ -208,13 +234,23 @@ def check_database(model: ProjectModel, scope: str, changed: set[str]) -> int:
     contract = model.contracts.database
     if contract is None or not should_run(scope, contract.source_globs, changed):
         return 0
-    check = run_command("database check", contract.check_command, timeout_seconds=getattr(contract, "timeout_seconds", 120), capture_output=True)
+    check = run_command(
+        "database check",
+        contract.check_command,
+        timeout_seconds=getattr(contract, "timeout_seconds", 120),
+        capture_output=True,
+    )
     if check is None:
         return 1
     if check.returncode != 0:
         print(check.stderr, file=sys.stderr, end="")
         return check.returncode
-    heads = run_command("database heads", contract.heads_command, timeout_seconds=getattr(contract, "timeout_seconds", 120), capture_output=True)
+    heads = run_command(
+        "database heads",
+        contract.heads_command,
+        timeout_seconds=getattr(contract, "timeout_seconds", 120),
+        capture_output=True,
+    )
     if heads is None:
         return 1
     if heads.returncode != 0:
@@ -227,7 +263,11 @@ def check_database(model: ProjectModel, scope: str, changed: set[str]) -> int:
     if head_count != 1:
         print(f"[backend-contracts] database: expected exactly one Alembic head, got {head_count}", file=sys.stderr)
         return 1
-    upgrade = run_command("database isolated upgrade", contract.isolated_upgrade_command, timeout_seconds=getattr(contract, "timeout_seconds", 120))
+    upgrade = run_command(
+        "database isolated upgrade",
+        contract.isolated_upgrade_command,
+        timeout_seconds=getattr(contract, "timeout_seconds", 120),
+    )
     return 1 if upgrade is None else upgrade.returncode
 
 
@@ -235,14 +275,21 @@ def check_health(model: ProjectModel, scope: str, changed: set[str]) -> int:
     status = 0
     for contract in model.contracts.health_checks:
         if should_run(scope, contract.source_globs, changed):
-            result = run_command(f"health {contract.id}", contract.command, timeout_seconds=getattr(contract, "timeout_seconds", 120))
+            result = run_command(
+                f"health {contract.id}", contract.command, timeout_seconds=getattr(contract, "timeout_seconds", 120)
+            )
             status = (1 if result is None else result.returncode) or status
     return status
 
 
 def run(scope: str, model: ProjectModel, *, changed: set[str] | None = None) -> int:
     prior = head_contracts()
-    if not declared_contracts(prior) and model.contracts.api is None and model.contracts.database is None and not model.contracts.health_checks:
+    if (
+        not declared_contracts(prior)
+        and model.contracts.api is None
+        and model.contracts.database is None
+        and not model.contracts.health_checks
+    ):
         print("[backend-contracts] no backend contracts declared")
         return 0
     current_changed = changed if changed is not None else changed_names(ROOT)

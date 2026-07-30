@@ -43,7 +43,9 @@ NUMSTAT_FIELDS = 3
 
 
 def git(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", "-c", "core.quotePath=false", *args], cwd=ROOT, text=True, capture_output=True, check=False)
+    return subprocess.run(
+        ["git", "-c", "core.quotePath=false", *args], cwd=ROOT, text=True, capture_output=True, check=False
+    )
 
 
 @functools.cache
@@ -157,7 +159,9 @@ def zone_has_trait(model: inventory_tool.ProjectModel, zone_id: object, trait: s
     return False
 
 
-def changed_entrypoints(changed: list[dict], inventory: dict, model: inventory_tool.ProjectModel) -> list[dict[str, object]]:
+def changed_entrypoints(
+    changed: list[dict], inventory: dict, model: inventory_tool.ProjectModel
+) -> list[dict[str, object]]:
     changed_paths = {str(item.get("path", "")) for item in changed}
     results: list[dict[str, object]] = []
     entrypoints = inventory.get("entrypoints", [])
@@ -192,9 +196,7 @@ def evaluate_risk_rules(packet: dict, model: inventory_tool.ProjectModel, invent
         elif rule.condition == "public_api_changed":
             matched = bool(packet["public_symbols_added"] or packet["public_symbols_removed"])
         elif rule.condition == "inventory_violation":
-            matched = any(
-                violation.get("kind") == rule.violation_kind for violation in inventory.get("violations", [])
-            )
+            matched = any(violation.get("kind") == rule.violation_kind for violation in inventory.get("violations", []))
         elif rule.condition == "changed_python_unclassified":
             matched = any(item["zone"] == "unclassified" and is_declared_source(item["path"]) for item in changed)
         elif rule.condition == "zone_trait_changed_without_trait":
@@ -271,15 +273,9 @@ def build_packet() -> dict:
             removed = sorted(old_symbols - current_symbols)
             public_added.extend({"path": path, "symbol": symbol} for symbol in added)
             public_removed.extend({"path": path, "symbol": symbol} for symbol in removed)
-    contract_files = [
-        item["path"]
-        for item in changed
-        if path_matches(item["path"], model.contracts.contract_files)
-    ]
+    contract_files = [item["path"] for item in changed if path_matches(item["path"], model.contracts.contract_files)]
     dependency_files = [
-        item["path"]
-        for item in changed
-        if path_matches(item["path"], model.contracts.dependency_files)
+        item["path"] for item in changed if path_matches(item["path"], model.contracts.dependency_files)
     ]
     entrypoints_changed = changed_entrypoints(changed, inventory, model)
     deleted_or_renamed_python = [

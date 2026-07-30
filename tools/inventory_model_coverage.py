@@ -80,9 +80,7 @@ def renamed_source_destinations(root: Path, model: ProjectModel) -> dict[str, st
 
 
 def changed_source_names(root: Path, model: ProjectModel) -> set[str]:
-    proc = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD"], cwd=root, text=True, capture_output=True, check=False
-    )
+    proc = subprocess.run(["git", "diff", "--name-only", "HEAD"], cwd=root, text=True, capture_output=True, check=False)
     changed = _with_declared_suffix(proc.stdout.splitlines() if proc.returncode == 0 else [], model)
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"], cwd=root, text=True, capture_output=True, check=False

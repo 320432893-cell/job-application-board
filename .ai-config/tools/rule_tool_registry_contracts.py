@@ -149,7 +149,14 @@ def uv_run_executable(tokens: list[str | None]) -> str | None:
 
 
 def is_process_runner(node: ast.expr) -> bool:
-    return isinstance(node, ast.Attribute) and node.attr in {"run", "Popen", "call", "check_call", "check_output", "system"}
+    return isinstance(node, ast.Attribute) and node.attr in {
+        "run",
+        "Popen",
+        "call",
+        "check_call",
+        "check_output",
+        "system",
+    }
 
 
 def command_literals(path: pathlib.Path) -> set[str]:
@@ -165,7 +172,10 @@ def command_literals(path: pathlib.Path) -> set[str]:
         if isinstance(command, ast.Constant) and isinstance(command.value, str):
             executable = uv_run_executable(shlex.split(command.value))
         elif isinstance(command, (ast.List, ast.Tuple)):
-            values = [item.value if isinstance(item, ast.Constant) and isinstance(item.value, str) else None for item in command.elts]
+            values = [
+                item.value if isinstance(item, ast.Constant) and isinstance(item.value, str) else None
+                for item in command.elts
+            ]
             executable = uv_run_executable(values)
         else:
             executable = None
@@ -196,9 +206,7 @@ def _check_capability_declarations(tools: dict, issues: list[Any], issue_type: t
         stages = {str(stage) for stage in tool.get("stages", [])}
         if tool.get("utility") and stages & AUTOMATED_STAGES:
             issues.append(issue(issue_type, "ERROR", f"utility tool {tool_id} must not declare automated stages"))
-        if not tool.get("utility") and stages & AUTOMATED_STAGES and not str(
-            tool.get("capability_id", "")
-        ).strip():
+        if not tool.get("utility") and stages & AUTOMATED_STAGES and not str(tool.get("capability_id", "")).strip():
             issues.append(issue(issue_type, "ERROR", f"stage tool {tool_id} must declare capability_id"))
 
 
@@ -212,15 +220,27 @@ def _check_changed_adapter_ownership(tools: dict, issues: list[Any], issue_type:
         if not capability:
             issues.append(issue(issue_type, "ERROR", f"changed adapter {tool_id} must declare capability_id"))
         elif capability != parent_capability:
-            issues.append(issue(issue_type, "ERROR", f"changed adapter {tool_id} capability_id must equal parent {parent_id}"))
+            issues.append(
+                issue(issue_type, "ERROR", f"changed adapter {tool_id} capability_id must equal parent {parent_id}")
+            )
         parent = tools.get(parent_id, {})
         if parent.get("changed_adapter"):
-            issues.append(issue(issue_type, "ERROR", f"changed adapter {tool_id} parent {parent_id} must be a full owner, not another adapter"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"changed adapter {tool_id} parent {parent_id} must be a full owner, not another adapter",
+                )
+            )
         elif "cleanup" not in {str(stage) for stage in parent.get("stages", [])}:
             replacement_id = str(tool.get("cleanup_replacement", "")).strip()
             replacement = tools.get(replacement_id, {})
             same_capability = str(replacement.get("capability_id", "")).strip() == capability
-            if not replacement_id or "cleanup" not in {str(stage) for stage in replacement.get("stages", [])} or not same_capability:
+            if (
+                not replacement_id
+                or "cleanup" not in {str(stage) for stage in replacement.get("stages", [])}
+                or not same_capability
+            ):
                 issues.append(
                     issue(
                         issue_type,
@@ -238,7 +258,13 @@ def _check_stage_capability_duplicates(registry: dict, tools: dict, issues: list
             if not capability:
                 continue
             if capability in seen:
-                issues.append(issue(issue_type, "ERROR", f"stage {stage} runs capability `{capability}` twice: {seen[capability]}, {tool_id}"))
+                issues.append(
+                    issue(
+                        issue_type,
+                        "ERROR",
+                        f"stage {stage} runs capability `{capability}` twice: {seen[capability]}, {tool_id}",
+                    )
+                )
             else:
                 seen[capability] = tool_id
 
@@ -273,7 +299,9 @@ def _check_declared_cli_owners(tools: dict, owners: dict, issues: list[Any], iss
             continue
         commands = [str(command) for field in COMMAND_FIELDS for command in owner.get(field, [])]
         if not any(command_declares_executable(command, str(executable)) for command in commands):
-            issues.append(issue(issue_type, "ERROR", f"CLI `{executable}` owner `{owner_id}` does not declare the command"))
+            issues.append(
+                issue(issue_type, "ERROR", f"CLI `{executable}` owner `{owner_id}` does not declare the command")
+            )
 
 
 def _allowed_adapter_sources(
@@ -295,7 +323,9 @@ def _allowed_adapter_sources(
         for adapter_id in adapter_ids:
             adapter = tools.get(str(adapter_id), {})
             if not adapter:
-                issues.append(issue(issue_type, "ERROR", f"CLI adapter `{executable}` references unknown tool `{adapter_id}`"))
+                issues.append(
+                    issue(issue_type, "ERROR", f"CLI adapter `{executable}` references unknown tool `{adapter_id}`")
+                )
                 continue
             allowed_adapter_sources[executable].update(
                 str(path).strip() for path in adapter.get("configured_in", []) if str(path).strip().endswith(".py")
@@ -319,9 +349,19 @@ def _check_direct_owner_cli_runs(
             if path.relative_to(root).as_posix() in UNIFIED_CLI_DISPATCHERS:
                 continue
             direct = command_literals(path) & protected
-            unexpected = sorted(executable for executable in direct if path.relative_to(root).as_posix() not in allowed_adapter_sources[executable])
+            unexpected = sorted(
+                executable
+                for executable in direct
+                if path.relative_to(root).as_posix() not in allowed_adapter_sources[executable]
+            )
             if unexpected:
-                issues.append(issue(issue_type, "ERROR", f"{path.relative_to(root)} directly runs owner CLI {unexpected}; dispatch through tools/check.py owner"))
+                issues.append(
+                    issue(
+                        issue_type,
+                        "ERROR",
+                        f"{path.relative_to(root)} directly runs owner CLI {unexpected}; dispatch through tools/check.py owner",
+                    )
+                )
 
 
 def _check_unified_entrypoint_markers(
@@ -338,7 +378,9 @@ def _check_unified_entrypoint_markers(
         ("registry_tool_commands(command_mode)", "unified entrypoint must execute ci_commands in ci stage"),
         ("check_changed.env_from(", "changed dispatcher must use an explicit callback interface"),
     ]
-    issues.extend(issue(issue_type, "ERROR", message) for marker, message in required_markers if marker not in entrypoint)
+    issues.extend(
+        issue(issue_type, "ERROR", message) for marker, message in required_markers if marker not in entrypoint
+    )
     registry_text = read_text(root / ".ai-config" / "config" / "tooling.registry.toml")
     if "load_profiles()" in entrypoint or "[profiles]" in registry_text:
         issues.append(issue(issue_type, "ERROR", "profiles are retired; use per-tool stages instead"))
@@ -356,14 +398,26 @@ def _check_tool_command_targets(
         for command in tool.get(field, []):
             target = command_python_target(str(command))
             if target == "__PYTHON3__":
-                issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: registry command uses python3; use uv run python for cross-platform CI"))
+                issues.append(
+                    issue(
+                        issue_type,
+                        "ERROR",
+                        f"tool {tool_id}: registry command uses python3; use uv run python for cross-platform CI",
+                    )
+                )
                 continue
             if target and not (root / target).exists():
                 issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: command target missing: {target}"))
     for configured_path in tool.get("configured_in", []):
         value = str(configured_path).strip().strip("/")
         if value and is_governance_config_path(value) and not path_matches_any(value, contract_patterns):
-            issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: configured_in `{value}` is not covered by project_model.contracts.contract_files"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"tool {tool_id}: configured_in `{value}` is not covered by project_model.contracts.contract_files",
+                )
+            )
 
 
 def _check_tool_changed_declarations(
@@ -377,11 +431,16 @@ def _check_tool_changed_declarations(
     if enforcement and enforcement not in ALLOWED_ENFORCEMENTS:
         issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: unknown enforcement `{enforcement}`"))
     legacy_changed_fields = [key for key in ("changed_python", "changed_source", "changed_triggers") if key in tool]
-    issues.extend(issue(issue_type, "ERROR", f"tool {tool_id}: legacy changed field `{key}` is retired; use changed_when") for key in legacy_changed_fields)
+    issues.extend(
+        issue(issue_type, "ERROR", f"tool {tool_id}: legacy changed field `{key}` is retired; use changed_when")
+        for key in legacy_changed_fields
+    )
     if tool.get("changed_when") and not tool.get("entrypoint_commands"):
         issues.append(issue(issue_type, "ERROR", f"tool {tool_id} changed_when requires entrypoint_commands"))
     unknown_events = sorted({str(item) for item in tool.get("changed_when", [])} - changed_event_kinds)
-    issues.extend(issue(issue_type, "ERROR", f"tool {tool_id} unknown changed_when event `{event}`") for event in unknown_events)
+    issues.extend(
+        issue(issue_type, "ERROR", f"tool {tool_id} unknown changed_when event `{event}`") for event in unknown_events
+    )
     if tool.get("trigger_on_configured_in") and not tool.get("configured_in"):
         issues.append(issue(issue_type, "ERROR", f"tool {tool_id} trigger_on_configured_in requires configured_in"))
 
@@ -409,9 +468,18 @@ def _check_changed_adapter_declarations(
         issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: parent_tool `{parent_tool}` is not registered"))
     parent_stages = [str(stage) for stage in tools_by_id.get(parent_tool, {}).get("stages", [])]
     invalid_stages = sorted(set(tool_stages) - {"quick", "stage"})
-    issues.extend(issue(issue_type, "ERROR", f"tool {tool_id}: changed_adapter cannot declare stage `{stage}`") for stage in invalid_stages)
+    issues.extend(
+        issue(issue_type, "ERROR", f"tool {tool_id}: changed_adapter cannot declare stage `{stage}`")
+        for stage in invalid_stages
+    )
     if "stage" in parent_stages:
-        issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: parent_tool `{parent_tool}` must not be in stage; stage should run the changed adapter"))
+        issues.append(
+            issue(
+                issue_type,
+                "ERROR",
+                f"tool {tool_id}: parent_tool `{parent_tool}` must not be in stage; stage should run the changed adapter",
+            )
+        )
 
 
 def _check_cleanup_coverage(
@@ -427,7 +495,13 @@ def _check_cleanup_coverage(
         replacement = tools_by_id.get(replacement_id, {})
         same_capability = replacement.get("capability_id") == tool.get("capability_id")
         if not replacement_id or "cleanup" not in replacement.get("stages", []) or not same_capability:
-            issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: stage checks must also be in cleanup or declare same-capability cleanup_replacement"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"tool {tool_id}: stage checks must also be in cleanup or declare same-capability cleanup_replacement",
+                )
+            )
 
 
 def _check_stage_gate_declarations(
@@ -441,15 +515,39 @@ def _check_stage_gate_declarations(
     if "stage" in tool_stages:
         stage_gate = str(tool.get("stage_gate", "")).strip()
         if enforcement not in ALLOWED_ENFORCEMENTS:
-            issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: stage tools must declare enforcement in {sorted(ALLOWED_ENFORCEMENTS)}"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"tool {tool_id}: stage tools must declare enforcement in {sorted(ALLOWED_ENFORCEMENTS)}",
+                )
+            )
         if enforcement == "advisory":
             issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: advisory tools must not run in stage"))
         if stage_gate not in ALLOWED_STAGE_GATES:
-            issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: stage tools need stage_gate in {sorted(ALLOWED_STAGE_GATES)}, got `{stage_gate}`"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"tool {tool_id}: stage tools need stage_gate in {sorted(ALLOWED_STAGE_GATES)}, got `{stage_gate}`",
+                )
+            )
         elif enforcement == "blocking" and stage_gate not in BLOCKING_STAGE_GATES:
-            issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: blocking stage tools need a blocking stage_gate, got `{stage_gate}`"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"tool {tool_id}: blocking stage tools need a blocking stage_gate, got `{stage_gate}`",
+                )
+            )
         elif enforcement == "material" and stage_gate not in MATERIAL_STAGE_GATES:
-            issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: material stage tools need stage_gate in {sorted(MATERIAL_STAGE_GATES)}, got `{stage_gate}`"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"tool {tool_id}: material stage tools need stage_gate in {sorted(MATERIAL_STAGE_GATES)}, got `{stage_gate}`",
+                )
+            )
     elif tool.get("stage_gate"):
         issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: stage_gate set but tool is not in stage"))
 
@@ -463,13 +561,23 @@ def _check_blocking_capability_reachability(tools_by_id: dict, issues: list[Any]
         capability = str(tool.get("capability_id", "")).strip()
         if not capability:
             continue
-        if tool.get("pre_commit_hook") or tool.get("pre_commit_hooks") or "ci" in [str(s) for s in tool.get("stages", [])]:
+        if (
+            tool.get("pre_commit_hook")
+            or tool.get("pre_commit_hooks")
+            or "ci" in [str(s) for s in tool.get("stages", [])]
+        ):
             automated_capabilities.add(capability)
         if str(tool.get("enforcement", "")).strip() == "blocking":
             blocking_capabilities.setdefault(capability, []).append(tool_id)
     for capability, owner_ids in sorted(blocking_capabilities.items()):
         if capability not in automated_capabilities:
-            issues.append(issue(issue_type, "ERROR", f"capability `{capability}` is blocking ({', '.join(sorted(owner_ids))}) but has no automatic trigger; some tool of this capability needs pre_commit_hook or the ci stage"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"capability `{capability}` is blocking ({', '.join(sorted(owner_ids))}) but has no automatic trigger; some tool of this capability needs pre_commit_hook or the ci stage",
+                )
+            )
 
 
 def check(root: pathlib.Path, registry: dict, issues: list[Any], issue_type: type) -> None:
@@ -506,10 +614,19 @@ def check(root: pathlib.Path, registry: dict, issues: list[Any], issue_type: typ
     for tool in registry.get("tools", []):
         tool_id = str(tool.get("id", "")).strip()
         tool_stages = [str(stage) for stage in tool.get("stages", [])]
-        issues.extend(issue(issue_type, "ERROR", f"tool {tool_id}: unknown stage `{stage}`") for stage in sorted(set(tool_stages) - allowed_stages))
+        issues.extend(
+            issue(issue_type, "ERROR", f"tool {tool_id}: unknown stage `{stage}`")
+            for stage in sorted(set(tool_stages) - allowed_stages)
+        )
         is_changed_adapter = bool(tool.get("changed_adapter"))
         if tool_id in known_items and not tool_stages and not tool.get("utility") and not is_changed_adapter:
-            issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: runnable tools need stages, utility=true, or changed_adapter=true"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"tool {tool_id}: runnable tools need stages, utility=true, or changed_adapter=true",
+                )
+            )
         _check_changed_adapter_declarations(tool, known_items, tools_by_id, issues, issue_type)
         if not tool_id or not tool_stages:
             continue
@@ -517,10 +634,22 @@ def check(root: pathlib.Path, registry: dict, issues: list[Any], issue_type: typ
             issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: stages set but no runnable command"))
         _check_cleanup_coverage(tool, tool_stages, tools_by_id, issues, issue_type)
         if is_changed_adapter and "cleanup" in tool_stages:
-            issues.append(issue(issue_type, "ERROR", f"changed adapter {tool_id} must not run in cleanup; its full owner owns that stage"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"changed adapter {tool_id} must not run in cleanup; its full owner owns that stage",
+                )
+            )
         _check_stage_gate_declarations(tool, tool_stages, issues, issue_type)
         if tool_id == "import-linter" and "stage" not in tool_stages:
-            issues.append(issue(issue_type, "ERROR", "import-linter must be available in stage because review rules rely on it for L1"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    "import-linter must be available in stage because review rules rely on it for L1",
+                )
+            )
         if tool.get("ci_commands") and "ci" not in tool_stages:
             issues.append(issue(issue_type, "ERROR", f"tool {tool_id}: ci_commands declared but ci stage missing"))
 
@@ -529,4 +658,10 @@ def check(root: pathlib.Path, registry: dict, issues: list[Any], issue_type: typ
     for stage, expected in stages.items():
         actual = dry_run_stage(root, stage, issues, issue_type)
         if actual and actual != expected:
-            issues.append(issue(issue_type, "ERROR", f"dry-run {stage} differs from registry stages: expected {expected}, got {actual}"))
+            issues.append(
+                issue(
+                    issue_type,
+                    "ERROR",
+                    f"dry-run {stage} differs from registry stages: expected {expected}, got {actual}",
+                )
+            )

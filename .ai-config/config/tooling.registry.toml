@@ -412,7 +412,13 @@ package = "deptry"
 purpose = "Dependency hygiene: unused, missing, and transitive dependency drift."
 rule = ".ai-config/rules/engineering/code.index.md"
 configured_in = ["pyproject.toml", "tools/check.py"]
-entrypoint_commands = ["uv run deptry . --per-rule-ignores DEP004=yaml"]
+entrypoint_commands = ["uv run deptry . --extend-exclude gates --per-rule-ignores DEP004=yaml|pathspec|pydantic|grimp {known_first_party_flags}"]
+# 三个参数各自的理由:
+#   --extend-exclude gates —— gates/ 装的是故意违规的反向样本(6 条 DEP003 全在那儿)。
+#   DEP004 白名单 —— 闸自己的代码(tools/)本身就是 dev 工具,"发布代码不该 import dev 依赖"
+#     这条判据对它不成立。刻意只列这几个模块名而不是整个排除 tools/:排除目录会让 tools/ 里
+#     真正未声明的第三方 import 也没人查,而白名单漏了只会多报一条(可见),不会少报一族(静默)。
+#   {known_first_party_flags} —— 从磁盘派生的第一方模块名,不在配置里枚举(78 条里 67 条假阳)。
 stages = ["deep", "cleanup"]
 scope = "Use for dependency debt triage."
 boundary = "Dynamic imports, optional providers, and script-only dependencies need human review; yaml is a dev-only .ai-config tooling dependency."

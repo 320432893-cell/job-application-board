@@ -130,8 +130,7 @@ def changed_when_items(event: str, registry: dict | None = None) -> list[str]:
     return [
         str(tool["id"])
         for tool in source.get("tools", [])
-        if event in [str(item) for item in tool.get("changed_when", [])]
-        and tool.get("entrypoint_commands")
+        if event in [str(item) for item in tool.get("changed_when", [])] and tool.get("entrypoint_commands")
     ]
 
 
@@ -161,7 +160,9 @@ def effective_path_triggers(registry: dict | None = None, *, is_code_name: Calla
         for path in [str(item) for item in tool.get("configured_in", [])]:
             if not path or is_code_name(path) or path.startswith(GOVERNANCE_CONFIG_PREFIXES):
                 continue
-            triggers.append({"id": f"configured-in:{tool['id']}:{path}", "tool": tool["id"], "paths": [path], "run_mode": "changed"})
+            triggers.append(
+                {"id": f"configured-in:{tool['id']}:{path}", "tool": tool["id"], "paths": [path], "run_mode": "changed"}
+            )
     return triggers
 
 

@@ -112,7 +112,9 @@ def reference_edges(files: list[Path]) -> list[dict[str, object]]:
             )
         text = evidence.read_small_text(path, max_bytes=MAX_TEXT_BYTES)
         if text:
-            tokens.extend((token, "small_text_or_comment_token", "weak") for token in evidence.string_tokens_from_text(text))
+            tokens.extend(
+                (token, "small_text_or_comment_token", "weak") for token in evidence.string_tokens_from_text(text)
+            )
         for token, token_source, confidence in tokens:
             target = evidence.resolve_reference(source, token, known_files)
             if not target:
@@ -302,7 +304,9 @@ def write_report(report: dict[str, object], path: Path = OUTPUT_PATH) -> None:
         items = list(public_report.pop(key, []))
         detail_path = path.with_name(f"{path.stem}.{key}.json")
         detail_path.write_text(
-            json.dumps({"schema_version": 1, "kind": key, "total": len(items), "items": items}, ensure_ascii=False, indent=2)
+            json.dumps(
+                {"schema_version": 1, "kind": key, "total": len(items), "items": items}, ensure_ascii=False, indent=2
+            )
             + "\n",
             encoding="utf-8",
         )

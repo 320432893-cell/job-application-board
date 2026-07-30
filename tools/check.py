@@ -90,7 +90,7 @@ def git_changed_names(args: Sequence[str]) -> tuple[int, list[str], str]:
 
 def load_pytest_file_patterns() -> tuple[list[str], list[str]]:
     manifest = ROOT / "pyproject.toml"  # 非 Python 项目没有这份清单,缺了就用默认值,不能崩
-    options = (tomllib.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {})
+    options = tomllib.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
     options = options.get("tool", {}).get("pytest", {}).get("ini_options", {})
     testpaths = options.get("testpaths", ["tests"])
     python_files = options.get("python_files", ["test_*.py"])
@@ -198,6 +198,8 @@ def load_registry() -> dict:
 
 def registry_tool_commands(command_mode: str = "entrypoint") -> dict[str, list[str]]:
     return tooling_registry.tool_commands(load_registry(), command_mode=command_mode)
+
+
 def changed_when_items(event: str) -> list[str]:
     return tooling_registry.changed_when_items(event, load_registry())
 
@@ -239,6 +241,8 @@ def run_ruff_staged() -> int:
 
 def name_matches(name: str, patterns: Sequence[str]) -> bool:
     return model_path_matches(name, [str(pattern) for pattern in patterns])
+
+
 def path_trigger_name_matches(name: str, patterns: Sequence[str]) -> bool:
     return tooling_registry.path_trigger_name_matches(name, patterns)
 
@@ -546,8 +550,8 @@ def _entrypoint_scaffold(name: str) -> str:
         f'"""{name} application entrypoint."""\n\n'
         "from __future__ import annotations\n\n\n"
         "def main() -> None:\n"
-        "    \"\"\"Assemble the application and start its delivery mechanism.\"\"\"\n"
-        "    raise NotImplementedError(\"TODO: assemble application\")\n\n\n"
+        '    """Assemble the application and start its delivery mechanism."""\n'
+        '    raise NotImplementedError("TODO: assemble application")\n\n\n'
         'if __name__ == "__main__":\n'
         "    main()\n"
     )
@@ -581,7 +585,9 @@ def run_new(rest: list[str]) -> int:
         return 2
     targets: list[tuple[pathlib.Path, str]] = []
     if kind == "test":
-        targets.append((ROOT / test_root / "features" / f"test_{name}.py", _test_scaffold(name, f"{test_root}/features")))
+        targets.append(
+            (ROOT / test_root / "features" / f"test_{name}.py", _test_scaffold(name, f"{test_root}/features"))
+        )
     elif kind == "entrypoint":
         targets.append((ROOT / entrypoint_root / f"{name}.py", _entrypoint_scaffold(name)))
     else:
@@ -589,7 +595,9 @@ def run_new(rest: list[str]) -> int:
             (ROOT / feature_root / name / filename, content)
             for filename, content in _module_scaffold(name, feature_root, api_filename, test_root).items()
         )
-        targets.append((ROOT / test_root / "features" / f"test_{name}.py", _test_scaffold(name, f"{test_root}/features")))
+        targets.append(
+            (ROOT / test_root / "features" / f"test_{name}.py", _test_scaffold(name, f"{test_root}/features"))
+        )
     for path, _ in targets:
         if path.exists():
             print(f"[new] 已存在，拒绝覆盖：{path.relative_to(ROOT)}", file=sys.stderr)
@@ -608,7 +616,9 @@ def run_stage(stage: str, stages: dict[str, list[str]]) -> int:
     for item in stages[stage]:
         tool = tooling_registry.tool_by_id(item, registry)
         result = run_item(item, command_mode)
-        nonblocking = command_mode != "ci" and (tool.get("relaxed") or tool.get("enforcement") in {"advisory", "material"})
+        nonblocking = command_mode != "ci" and (
+            tool.get("relaxed") or tool.get("enforcement") in {"advisory", "material"}
+        )
         if result != 0 and status == 0 and not nonblocking:
             status = result
     return status
@@ -667,7 +677,10 @@ def main() -> int:
         print_list(stages)
         return 0
     if governance_mode() == "foreign":
-        print("[check] foreign 项目不运行工程闸；请使用 ai-global/template/audit_legacy.sh 生成只读维护材料。", file=sys.stderr)
+        print(
+            "[check] foreign 项目不运行工程闸；请使用 ai-global/template/audit_legacy.sh 生成只读维护材料。",
+            file=sys.stderr,
+        )
         return 2
     if args.target == "new":
         return run_new(args.rest)

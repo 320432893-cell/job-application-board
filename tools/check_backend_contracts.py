@@ -72,7 +72,8 @@ def canonical_json(value: object, key: str = "") -> object:
         return {name: canonical_json(item, name) for name, item in sorted(value.items())}
     if isinstance(value, list):
         items = [canonical_json(item) for item in value]
-        return sorted(items) if key == "required" else items
+        # key=str:required 里装的是字段名(字符串),按 str 排结果一字不差,但静态上不再要求元素可比较
+        return sorted(items, key=str) if key == "required" else items
     return value
 
 

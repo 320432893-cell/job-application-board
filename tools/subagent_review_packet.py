@@ -169,7 +169,8 @@ def build_context(stage: str) -> dict[str, Any]:
         "project_discovery": {
             "scope": discovery.get("scope"),
             "summary": discovery.get("summary", {}),
-            "findings_sample": discovery.get("findings", [])[:30],
+            # 走 limited_items:.get() 静态上给的是 object,直接切片不合法(同一份文件里上面两行已在用它)
+            "findings_sample": limited_items(discovery.get("findings"))[:30],
         },
         "stage_packet": compact_stage_packet(stage_packet),
         "capability_catalog": capability_catalog() if stage == "cleanup" else [],

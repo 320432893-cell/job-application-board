@@ -224,7 +224,7 @@ def build_report() -> dict[str, object]:
         if hint.get("zone") != "unclassified" or is_global_scaffold_path(path_name):
             continue
         project_entry_hints.append(
-            {**hint, "tier": evidence.entrypoint_tier(path_name, [str(item) for item in hint["reasons"]])}
+            {**hint, "tier": evidence.entrypoint_tier(path_name, [str(item) for item in _reasons(hint)])}
         )
     unmodeled_reference_sources = [
         {"path": path, "outgoing_reference_count": count}
@@ -301,7 +301,8 @@ def write_report(report: dict[str, object], path: Path = OUTPUT_PATH) -> None:
     public_report = dict(report)
     detail_paths: dict[str, str] = {}
     for key in DETAIL_KEYS:
-        items = list(public_report.pop(key, []))
+        popped = public_report.pop(key, [])
+        items = list(popped) if isinstance(popped, list) else []
         detail_path = path.with_name(f"{path.stem}.{key}.json")
         detail_path.write_text(
             json.dumps(
@@ -315,19 +316,44 @@ def write_report(report: dict[str, object], path: Path = OUTPUT_PATH) -> None:
     path.write_text(json.dumps(public_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _section(report: dict[str, object], key: str) -> dict[str, object]:
+    """从 JSON 报告里取一小节并窄化。
+
+    report 是别的进程(或上一次运行)写下的异质 JSON,读的时候形状只能现场确认 —— 这不是
+    能靠标注消掉的事,是边界处的事实。不窄化的话 `report["summary"]["file_count"]` 静态上
+    就是在 object 上取下标(basedpyright 在本文件报了 9 条,大半是这一个原因)。
+    """
+    value = report.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _items(section: dict[str, object], key: str) -> list[object]:
+    """取 `{key: {"items": [...]}}` 里的那个列表;形状不对就当空。"""
+    nested = _section(section, key)
+    value = nested.get("items")
+    return value if isinstance(value, list) else []
+
+
 def print_summary(report: dict[str, object]) -> None:
-    summary = report["summary"]
+    summary = _section(report, "summary")
     print(
         "[project-bootstrap] "
         f"files={summary['file_count']} python={summary['python_file_count']} "
         f"unmodeled_python={summary['unmodeled_python_count']} "
         f"references={summary['reference_edge_count']} ignored_dirs={summary['ignored_dir_count']}"
     )
-    suggestions = report["model_suggestions"]
-    for hint in suggestions.get("project_entrypoint_hints", {}).get("items", [])[:10]:
-        print(f"  - entrypoint-hint {hint['path']}: {', '.join(hint['reasons'])}")
-    for hub in suggestions.get("unmodeled_reference_sources", {}).get("items", [])[:10]:
-        print(f"  - reference-hub {hub['path']}: {hub['outgoing_reference_count']} outgoing references")
+    suggestions = _section(report, "model_suggestions")
+    for hint in _items(suggestions, "project_entrypoint_hints")[:10]:
+        row = hint if isinstance(hint, dict) else {}
+        print(f"  - entrypoint-hint {row.get('path')}: {', '.join(str(x) for x in _reasons(row))}")
+    for hub in _items(suggestions, "unmodeled_reference_sources")[:10]:
+        row = hub if isinstance(hub, dict) else {}
+        print(f"  - reference-hub {row.get('path')}: {row.get('outgoing_reference_count')} outgoing references")
+
+
+def _reasons(row: dict[str, object]) -> list[object]:
+    value = row.get("reasons")
+    return value if isinstance(value, list) else []
 
 
 def main(argv: list[str] | None = None) -> int:

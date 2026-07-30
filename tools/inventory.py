@@ -278,7 +278,7 @@ class ModuleResolver:
         hit = lang_python.longest_known_module(module, self.by_module)
         return {**self.by_module[hit], "resolved_by": "module"} if hit else None
 
-    def resolve_relative(self, source_name: str, item: dict[str, object]) -> dict[str, object] | None:
+    def resolve_relative(self, source_name: str, item: lang_python.ImportRecord) -> dict[str, object] | None:
         target_path = lang_python.relative_import_target(source_name, item, ROOT)
         record = self.by_path.get(target_path)
         if not record:
@@ -356,7 +356,7 @@ def file_record_for_path(path: Path, model: ProjectModel, *, parse: bool) -> dic
     name = rel(path)
     zone, matched_by = classify(name, model)
     member = member_for_path(name, model)
-    imports: list[dict[str, object]] = []
+    imports: list[lang_python.ImportRecord] = []
     public_symbols: list[dict[str, object]] = []
     parse_error = None
     if parse and path.suffix in lang_python.SUFFIXES:
@@ -397,7 +397,7 @@ def edges_for_records(
     for file_record in file_records:
         name = str(file_record["path"])
         zone = str(file_record["zone"])
-        for item in file_record.get("imports", []):
+        for item in lang_python.as_import_records(file_record.get("imports")):
             root = str(item.get("root") or "")
             target_zone = import_zones.get(root)
             target_member = ""
@@ -621,7 +621,7 @@ def dedupe_key(edge: dict[str, object], fields: tuple[str, ...]) -> tuple[str, .
 
 def import_policy_violations(edges: list[dict[str, object]], zones: dict[str, Zone]) -> list[dict[str, object]]:
     violations: list[dict[str, object]] = []
-    seen: set[tuple[str, str, str, str, str]] = set()
+    seen: set[tuple[str, ...]] = set()  # 元数不写死:dedupe_key 按字段清单动态拼
     for edge in edges:
         source_zone_id = str(edge.get("source_zone") or "")
         target_zone_id = edge.get("target_zone")
@@ -747,7 +747,7 @@ def apply_managed_violation_baseline(
 
 def unknown_dependency_violations(edges: list[dict[str, object]], zones: dict[str, Zone]) -> list[dict[str, object]]:
     violations: list[dict[str, object]] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, ...]] = set()
     for edge in edges:
         source_zone_id = str(edge.get("source_zone") or "")
         if source_zone_id not in zones:
@@ -778,7 +778,7 @@ def deleted_dependency_violations(
     edges: list[dict[str, object]], deleted_paths: set[str], zones: dict[str, Zone]
 ) -> list[dict[str, object]]:
     violations: list[dict[str, object]] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, ...]] = set()
     for edge in edges:
         source_zone_id = str(edge.get("source_zone") or "")
         if source_zone_id not in zones:

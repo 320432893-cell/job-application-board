@@ -123,7 +123,7 @@ def ignore_dirs_from_patterns(patterns: Sequence[str]) -> tuple[str, ...]:
     return _dedupe(values)
 
 
-def project_model_code_layout() -> dict | None:
+def project_model_code_layout() -> dict:  # 不会返回 None:缺字段就 raise,标 | None 是旧签名没跟上
     model = load_project_model()
     tooling = model.get("tooling")
     if not isinstance(tooling, dict):

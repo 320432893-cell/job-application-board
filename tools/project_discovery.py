@@ -192,8 +192,8 @@ def _new_island_group() -> IslandGroup:
     }
 
 
-def _island_groups_from_files(inventory: dict, project_roots: tuple[str, ...]) -> dict[str, dict[str, object]]:
-    groups: dict[str, dict[str, object]] = {}
+def _island_groups_from_files(inventory: dict, project_roots: tuple[str, ...]) -> dict[str, IslandGroup]:
+    groups: dict[str, IslandGroup] = {}
     for file_record in inventory.get("files", []):
         if file_record.get("zone") != "unclassified":
             continue
@@ -209,9 +209,7 @@ def _island_groups_from_files(inventory: dict, project_roots: tuple[str, ...]) -
     return groups
 
 
-def _add_island_import_edges(
-    inventory: dict, project_roots: tuple[str, ...], groups: dict[str, dict[str, object]]
-) -> None:
+def _add_island_import_edges(inventory: dict, project_roots: tuple[str, ...], groups: dict[str, IslandGroup]) -> None:
     def group_for_unresolved_import(root: str) -> str:
         matches = [
             key
@@ -428,9 +426,15 @@ def temp_weight_bearing_findings(inventory: dict, model: inventory_tool.ProjectM
     return findings
 
 
+def _as_mapping(value: object) -> dict[str, object]:
+    """JSON 里取出来的一小节:形状只能现场确认。不窄化的话下面的 setdefault 会被推成
+    dict[list[bytes], …] 这种莫名其妙的类型(basedpyright 在本函数报了 9 条)。"""
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def as_evidence_only(item: dict[str, object]) -> dict[str, object]:
     normalized = dict(item)
-    evidence_payload = dict(normalized.get("evidence") or {})
+    evidence_payload = _as_mapping(normalized.get("evidence"))
     evidence_payload.setdefault("evidence_role", "subagent_review_hint")
     evidence_payload.setdefault("decision_role", "evidence_only")
     evidence_payload["blocking"] = False
@@ -439,7 +443,8 @@ def as_evidence_only(item: dict[str, object]) -> dict[str, object]:
     if severity != "observed":
         normalized["original_severity"] = severity
         normalized["severity"] = "observed"
-        reasons = [str(reason) for reason in normalized.get("reasons", [])]
+        raw_reasons = normalized.get("reasons")
+        reasons = [str(reason) for reason in (raw_reasons if isinstance(raw_reasons, list) else [])]
         reasons.append(
             f"downgraded from {severity}: project_discovery is evidence-only; "
             "blocking belongs to inventory/model policy"
@@ -536,14 +541,16 @@ def write_report(report: dict[str, object], path: Path = OUTPUT_PATH) -> None:
 
 
 def print_human_summary(report: dict[str, object]) -> None:
-    summary = report["summary"]
+    summary = _as_mapping(report.get("summary"))
     print(
         "[project-discovery] "
         f"findings={summary['finding_count']} critical={summary['critical']} "
         f"suspicious={summary['suspicious']} observed={summary['observed']} scope={report['scope']}"
     )
-    for item in report["findings"][:30]:
-        print(f"  - [{item['severity']}] {item['kind']} {item['path']}: {item['message']}")
+    findings = report.get("findings")
+    for entry in (findings if isinstance(findings, list) else [])[:30]:
+        item = _as_mapping(entry)
+        print(f"  - [{item.get('severity')}] {item.get('kind')} {item.get('path')}: {item.get('message')}")
 
 
 def main(argv: list[str] | None = None) -> int:

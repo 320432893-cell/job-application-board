@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -422,7 +422,7 @@ def run_item(item: str, command_mode: str = "entrypoint") -> int:
     return 2
 
 
-def run_many(items: Sequence[tuple[str, Sequence[str] | str]] | list[tuple[str, Sequence[str] | str]]) -> int:
+def run_many(items: Iterable[tuple[str, Sequence[str] | str]]) -> int:  # 只迭代一次,不需要 Sequence
     status = 0
     for label, command in items:
         result = run_command(label, command)

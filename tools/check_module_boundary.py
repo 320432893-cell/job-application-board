@@ -19,6 +19,7 @@ import json
 import pathlib
 import re
 import sys
+from typing import TypedDict
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import baseline_policy
@@ -142,6 +143,19 @@ def iter_changed_scan_files() -> tuple[int, list[pathlib.Path]]:
     return 0, inventory_scan_files("changed")
 
 
+class OversizedEntry(TypedDict, total=False):
+    """oversized 基线里的一条登记。
+
+    原来按 dict[str, object] 读,于是 `int(entry.get("lines", 0))` 静态上不合法(报了 2 条)。
+    这份结构的字段是契约(lines 是数,reason/split_when 是话),写出来比留个 object 有用。
+    total=False:历史条目可能缺 split_when,读的时候要容得下。
+    """
+
+    lines: int
+    reason: str
+    split_when: str
+
+
 def is_test_module(path: pathlib.Path) -> bool:
     path_str = rel(path)
     return (
@@ -160,7 +174,7 @@ def iter_changed_test_files() -> tuple[int, list[pathlib.Path]]:
     return 0, inventory_scan_files("changed", tests=True)
 
 
-def load_oversized_baseline() -> dict[str, dict[str, object]]:
+def load_oversized_baseline() -> dict[str, OversizedEntry]:
     if not OVERSIZED_BASELINE_PATH.exists():
         return {}
     try:
@@ -170,10 +184,16 @@ def load_oversized_baseline() -> dict[str, dict[str, object]]:
     entries = data.get("entries", {})
     if not isinstance(entries, dict):
         return {}
-    normalized: dict[str, dict[str, object]] = {}
+    normalized: dict[str, OversizedEntry] = {}
     for path, value in entries.items():
         if isinstance(value, dict):
-            normalized[str(path)] = value
+            # 按字段重建而不是把 JSON 的 dict 直接塞进去:isinstance 只证明"是个 dict",
+            # 证不出键和值的类型。边界处照抄形状就是把"文件里写的一定对"当成了前提。
+            normalized[str(path)] = {
+                "lines": int(value.get("lines", 0) or 0),
+                "reason": str(value.get("reason", "")),
+                "split_when": str(value.get("split_when", "")),
+            }
         else:
             normalized[str(path)] = {
                 "lines": int(value),
@@ -183,12 +203,12 @@ def load_oversized_baseline() -> dict[str, dict[str, object]]:
     return normalized
 
 
-def oversized_baseline_expands(current: dict[str, dict[str, object]], prior: dict[str, object]) -> bool:
+def oversized_baseline_expands(current: dict[str, OversizedEntry], prior: dict[str, object]) -> bool:
     entries = prior.get("entries", {})
     if not isinstance(entries, dict):
         return True
     for path, entry in current.items():
-        previous = entries.get(path)
+        previous: OversizedEntry | None = entries.get(path)
         if not isinstance(previous, dict):
             return True
         try:
@@ -199,7 +219,7 @@ def oversized_baseline_expands(current: dict[str, dict[str, object]], prior: dic
     return False
 
 
-def enforce_oversized_baseline_policy(baseline: dict[str, dict[str, object]]) -> None:
+def enforce_oversized_baseline_policy(baseline: dict[str, OversizedEntry]) -> None:
     prior = baseline_policy.head_json(OVERSIZED_BASELINE_PATH)
     if prior is not None:
         baseline_policy.require_expansion_approval(
@@ -209,7 +229,7 @@ def enforce_oversized_baseline_policy(baseline: dict[str, dict[str, object]]) ->
         )
 
 
-def oversized_limit(entry: dict[str, object] | None) -> int | None:
+def oversized_limit(entry: OversizedEntry | None) -> int | None:
     if not entry:
         return None
     try:
@@ -219,7 +239,7 @@ def oversized_limit(entry: dict[str, object] | None) -> int | None:
 
 
 def classify_oversized(
-    paths: list[pathlib.Path], threshold: int, baseline: dict[str, dict[str, object]]
+    paths: list[pathlib.Path], threshold: int, baseline: dict[str, OversizedEntry]
 ) -> tuple[list[str], list[str]]:
     """超限文件分流：返回 (阻塞消息, 挂账WARNING消息)。计数型棘轮只减不增。"""
     blocking: list[str] = []

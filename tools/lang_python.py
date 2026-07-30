@@ -13,15 +13,33 @@ zone 归属、有向许可、跨边界正门这些判据是语言无关的,留�
 from __future__ import annotations
 
 import ast
+from collections.abc import Container
 from pathlib import Path, PurePosixPath
+from typing import NotRequired, TypedDict
 
 LANGUAGE_ID = "python"
 SUFFIXES = (".py",)
 
 
+class ImportRecord(TypedDict):
+    """一条 import 记录。
+
+    原来是 dict[str, object]:值退化成 object 后 `int(item.get("level") or 0)` 和
+    `for n in item.get("names", [])` 静态上都不合法(basedpyright 在本文件报了 4 条)。
+    relative 那种 import 才带 level/names,所以这两个字段用 NotRequired 精确标出可选,
+    而不是把整份结构降级成 object —— 字段在不在,本来就是这份记录的契约。
+    """
+
+    module: str
+    root: str
+    kind: str
+    level: NotRequired[int]
+    names: NotRequired[list[str]]
+
+
 class ImportCollector(ast.NodeVisitor):
     def __init__(self) -> None:
-        self.imports: list[dict[str, object]] = []
+        self.imports: list[ImportRecord] = []
         self.public_symbols: list[dict[str, object]] = []
 
     def visit_Import(self, node: ast.Import) -> None:
@@ -59,7 +77,7 @@ class ImportCollector(ast.NodeVisitor):
             self.public_symbols.append({"kind": "class", "name": node.name})
 
 
-def parse_source(path: Path, display_name: str) -> tuple[list[dict[str, object]], list[dict[str, object]], str | None]:
+def parse_source(path: Path, display_name: str) -> tuple[list[ImportRecord], list[dict[str, object]], str | None]:
     """读一个 .py:返回 (imports, public_symbols, parse_error)。display_name 只用于报错文案。"""
     try:
         module = ast.parse(path.read_text(encoding="utf-8"), filename=display_name)
@@ -70,7 +88,17 @@ def parse_source(path: Path, display_name: str) -> tuple[list[dict[str, object]]
     return collector.imports, collector.public_symbols, None
 
 
-def relative_import_target(source_name: str, item: dict[str, object], root: Path) -> str:
+def as_import_records(value: object) -> list[ImportRecord]:
+    """从 JSON 记录里取 imports 列表。
+
+    inventory 的 file_record 整体是 dict[str, object],取出来静态上是 object、不可迭代。
+    窄化住在 ImportRecord 的定义旁边而不是每个调用点各写一遍 —— 这本来就是"什么算一条
+    import 记录"的一部分。
+    """
+    return value if isinstance(value, list) else []
+
+
+def relative_import_target(source_name: str, item: ImportRecord, root: Path) -> str:
     """相对 import 落到仓库内的路径。root 由调用方注入:适配器不该自己知道仓库根在哪。"""
     level = int(item.get("level") or 0)
     module = str(item.get("module") or "")
@@ -109,7 +137,7 @@ def module_name_for(path_name: str, root: str) -> str | None:
     return rel_name[:-3].replace("/", ".") or None
 
 
-def longest_known_module(module: str, known: object) -> str | None:
+def longest_known_module(module: str, known: Container[str]) -> str | None:
     """Python 的点号层级语义:a.b.c 找不到就退 a.b、再退 a。known 是任何支持 `in` 的容器。"""
     parts = [part for part in module.split(".") if part]
     for end in range(len(parts), 0, -1):

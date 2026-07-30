@@ -152,7 +152,6 @@ def main(argv: list[str]) -> int:
                 continue
             index.setdefault(stem(sym), []).append((sym, path))
 
-    changed = changed_files() if changed_mode else None
     hits: list[tuple[str, list[str], str]] = []
     for stem_name, occ in index.items():
         files = {p for _, p in occ}
@@ -162,7 +161,10 @@ def main(argv: list[str]) -> int:
         hits.append((stem_name, names, ", ".join(sorted(rel(p) for p in files))))
 
     if changed_mode:
-        exact, near = changed_hits(index, added_symbols(changed))
+        # changed 只在这一支里有意义,就在这里算:原来提前算成 `... if changed_mode else None`,
+        # 类型上变成 set[Path] | None,而 added_symbols 要的是 set[Path] —— 不变量藏在两个
+        # 分支的相关性里,静态上看不出来(basedpyright 报的就是这条)。放进分支里,不变量就写在代码结构上。
+        exact, near = changed_hits(index, added_symbols(changed_files()))
         for stem_name, names, locs in exact:
             sys.stderr.write(
                 f"X [dup-symbol] 新增完全同名符号 {names}（词根 '{stem_name}'）: {locs} —— 必须取代、改名或由人明确裁决。\n"

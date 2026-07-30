@@ -264,7 +264,12 @@ kind = "python-dev-tool"
 package = "basedpyright"
 purpose = "Type, signature, optionality, and static Python type consistency checks."
 rule = ".ai-config/AGENTS.md"
-configured_in = ["pyproject.toml"]
+# pyrightconfig.json 必须有,而且必须随受管清单发给每个 Python 项目:
+# basedpyright 裸跑用的是它最严的 recommended 档,实测 2662 条里 2419 条是"类型未知"族的
+# strictness 噪音(reportAny 683、reportUnknownMemberType 525…),真 error 只有 243 条。
+# 一道常年 2600 条的红灯等于没有红灯 —— 没人看,也没人修。standard 档 + 排除 gates 后剩 81 条真 error。
+# 另外 exclude 会整体替换 pyright 的默认排除,所以 **/.* 必须写回来,漏了会去扫 .venv(实测跑到超时)。
+configured_in = ["pyrightconfig.json"]
 pre_commit_hook = "basedpyright"
 entrypoint_commands = ["uv run basedpyright"]
 stages = ["cleanup"]

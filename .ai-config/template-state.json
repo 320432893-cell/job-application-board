@@ -3,7 +3,7 @@
   "files": {
     ".ai-config/AGENTS.md": "9cdd136a76e0f638612535f1a51765d06771411ea3b3d03aab1f8d1eeeb00d5d",
     ".ai-config/TOOLING_CONTRACTS.md": "a8e0352e9bffedc4ffc9dd5e00612193ca34d518386f08fd0bcf5e75f4f27421",
-    ".ai-config/config/tooling.registry.toml": "3847980675a65f7882c6bcd04781361930b69ba810117527a5130cc46f159c2b",
+    ".ai-config/config/tooling.registry.toml": "ddd0173f3d3bf9583f67b61100f3229028ec9c86e9960562d837d13396a47359",
     ".ai-config/pyproject.toml": "bc55c7bdf58a375d7f8fa794db0d214a948a84c3726c3ca3c9fb3add8af07f0f",
     ".ai-config/rules/engineering/code.index.md": "b75ad39d5b90622b62ad103e152b34f99af3dfeae8e60de06b7284ca2c578bc8",
     ".ai-config/rules/engineering/naming.index.md": "338a1201d9edfd6cc9b4194324de6fb0fdd87e295fa725da31177e1aea35c42b",
@@ -96,7 +96,7 @@
     "tools/lang_python.py": "dc83ea236e3389bc751319f7fc10a9e655df0924f8582e8501e8b6a925ebf217",
     "tools/lang_typescript.py": "4fcbf6bbdd9933661d7c591bf7e147bb00959871101060613129d1e96916d49d",
     "tools/project_bootstrap.py": "fcd1146ea38d196a5995350c84d40e320a22818b1e1fa18b02fcceb5957d56f2",
-    "tools/project_discovery.py": "bb7e97691f5faaa0523f0a54b95a1e1efb97320982fb952fc946e2a3ef213676",
+    "tools/project_discovery.py": "185a8e2af7bc9af0d00c033cab195477f9199212e3291f5fb31dd94ea6ea998f",
     "tools/project_model.py": "3a506d599b5fbb24eb0fbc123f7cdad885d48699d9b480595fdfc7aa8b786bd3",
     "tools/repo_files.py": "2fb8e40c160b58fab45402bb5b855fc05e1889a73faa87bdcde6a9eb33e0f500",
     "tools/review_fingerprint.py": "0c8347a897403751b7d96349f1dba4e4c171fd12a2ae534c4a79680e3bdb3647",

@@ -12,6 +12,7 @@ import json
 import os
 import sys
 from pathlib import Path, PurePosixPath
+from typing import TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence_extractors as evidence
@@ -161,7 +162,25 @@ def review_evidence_finding(
     )
 
 
-def _new_island_group() -> dict[str, object]:
+class IslandGroup(TypedDict):
+    """一个"代码孤岛"分组的累加器。
+
+    原来是 dict[str, object]:值类型退化成 object 后,`group["paths"].append(...)` 这类写法
+    静态上全都不合法 —— basedpyright 在本文件报了 31 条,其中一多半就是这一个根因。
+    写成 TypedDict 不是为了让类型检查器闭嘴:字段名和元素类型本来就是这份结构的契约,
+    退化成 object 等于把契约从代码里删掉,改错了也没人拦。
+    """
+
+    paths: list[str]
+    entrypoints: list[str]
+    entrypoint_reasons: dict[str, str]
+    imported_by: list[str]
+    test_imported_by: list[str]
+    parse_errors: list[str]
+    unresolved_import_evidence: list[dict[str, object]]
+
+
+def _new_island_group() -> IslandGroup:
     return {
         "paths": [],
         "entrypoints": [],
@@ -232,7 +251,7 @@ def _add_island_import_edges(
             group["test_imported_by"].append(source)
 
 
-def _island_finding(key: str, group: dict[str, object]) -> dict[str, object] | None:
+def _island_finding(key: str, group: IslandGroup) -> dict[str, object] | None:
     paths = sorted({str(item) for item in group["paths"]})
     imported_by = sorted({str(item) for item in group["imported_by"]})
     entrypoints = sorted({str(item) for item in group["entrypoints"]})

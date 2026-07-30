@@ -1,0 +1,5 @@
+tools = ["semgrep"]
+violates = "正式代码里用 await new Promise(r => setTimeout(r, n)) 睡着等外部状态"
+# Python 那份双胞胎在 gates/semgrep(裸 time.sleep)。
+# 规则本身按语言分:.semgrep/ 里每条规则都声明 languages,项目没那门语言的规则不会命中。
+language = "typescript"

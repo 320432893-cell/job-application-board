@@ -1,0 +1,18 @@
+rules:
+  - id: no-raw-async-sleep
+    message: "非测试代码禁止用 `await new Promise(r => setTimeout(r, n))` 睡着等外部状态；应改用轮询/显式等待条件。业务确需固定等待时，紧邻处注释业务原因后可忽略本告警。"
+    severity: WARNING
+    languages: [typescript, javascript]
+    # 只按文件名约定排除测试,不写目录字面量:目录布局由 project_model 定,
+    # 规则文件里写死 `tests/` 会在测试不住那个目录的项目里被布局字面量闸拦下(实测过)。
+    paths:
+      exclude:
+        - "**/*.test.ts"
+        - "**/*.test.tsx"
+        - "**/*.spec.ts"
+        - "**/*.spec.tsx"
+    patterns:
+      - pattern-either:
+          - pattern: await new Promise($R => setTimeout($R, ...))
+          - pattern: await new Promise(($R) => setTimeout($R, ...))
+          - pattern: await new Promise(function ($R) { setTimeout($R, ...); })

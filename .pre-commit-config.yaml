@@ -37,11 +37,20 @@ repos:
     hooks:
       - id: check-added-large-files
         args: ["--maxkb=5120"]
+      # gates/ 装的是**故意违规**的反向样本和 append/ 片段:片段不是独立合法文档
+      # (append/package.json 只是要追加进真文件的一段),样本也刻意带着格式问题。
+      # 让通用格式化钩子改它们,等于把样本"修好"——闸就再也拦不住自己的样本了。
+      # 实测:end-of-file-fixer 把 append/package.json 清空,提交当场中止。
       - id: check-json
+        exclude: ^gates/
       - id: check-yaml
+        exclude: ^gates/
       - id: check-toml
+        exclude: ^gates/
       - id: end-of-file-fixer
+        exclude: ^gates/
       - id: trailing-whitespace
+        exclude: ^gates/
 
   - repo: local
     hooks:

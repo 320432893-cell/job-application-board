@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import inventory as inventory_tool
 import lang_python
 import tooling_registry
-from project_model import path_matches
+from project_model import load_project_model, load_project_model_dict, path_matches, source_suffixes
 from review_fingerprint import report_fingerprint
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -196,7 +196,7 @@ def evaluate_risk_rules(packet: dict, model: inventory_tool.ProjectModel, invent
                 violation.get("kind") == rule.violation_kind for violation in inventory.get("violations", [])
             )
         elif rule.condition == "changed_python_unclassified":
-            matched = any(item["zone"] == "unclassified" and item["path"].endswith(".py") for item in changed)
+            matched = any(item["zone"] == "unclassified" and is_declared_source(item["path"]) for item in changed)
         elif rule.condition == "zone_trait_changed_without_trait":
             source_changed = any(zone_has_trait(model, item["zone"], rule.source_trait) for item in changed)
             companion_changed = any(zone_has_trait(model, item["zone"], rule.companion_trait) for item in changed)
@@ -206,12 +206,29 @@ def evaluate_risk_rules(packet: dict, model: inventory_tool.ProjectModel, invent
     return sorted(set(flags))
 
 
+def declared_language_ids() -> set[str]:
+    return tooling_registry.declared_language_ids(load_project_model_dict())
+
+
+def is_declared_source(path_name: str) -> bool:
+    """这个路径是不是本项目声明语言的源码。
+
+    写死 `.py` 的后果是**错标而不是漏报**:实测纯 TS 项目里 src/utils/x.ts 被打成 zone=non_python,
+    而它明明在 formal 区 —— 提交前给人和子 agent 看的就是这份 packet,标错等于把复核引到沟里。
+    """
+    return Path(path_name).suffix in set(source_suffixes(load_project_model()))
+
+
 def skipped_stage_tools() -> list[dict[str, object]]:
     registry = tooling_registry.load_registry(REGISTRY_PATH)
     skipped: list[dict[str, object]] = []
     for tool in registry.get("tools", []):
         tool_id = str(tool.get("id", "")).strip()
         if not tool_id or "stage" not in [str(stage) for stage in tool.get("stages", [])]:
+            continue
+        # 语言不适用的工具本来就不该跑,把它记成"必需工具被跳过"会让纯 TS 项目每次提交都举一面
+        # 假风险旗(实测:import-linter 缺 .importlinter —— 而那份配置正是按语言故意不装的)。
+        if not tooling_registry.applies_to_languages(tool, declared_language_ids()):
             continue
         missing = tooling_registry.missing_required_paths(tool_id, ROOT, registry)
         if missing:
@@ -242,8 +259,8 @@ def build_packet() -> dict:
         path = row.get("path", "")
         if row.get("status") == "D":
             zone = "deleted"
-        elif not path.endswith(".py"):
-            zone = "non_python"
+        elif not is_declared_source(path):
+            zone = "non_source"
         else:
             zone = zone_by_path.get(path, "unclassified")
         changed.append({**row, "zone": zone, **stats.get(path, {})})

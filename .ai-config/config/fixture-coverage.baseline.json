@@ -2,18 +2,7 @@
   "reason": "反向样本覆盖欠账登记表:这个闸能拦人,但本项目里没有任何样本真的跑到过它。每条必须写清为什么跑不到,以及一个可判定的清除条件。",
   "ratchet": "只减不增:样本一旦能在本项目真跑起来,就把登记删掉锁战果;新增未登记的欠账直接阻塞。",
   "why_this_exists": "完备性口径只认『样本真的种下去、真的跑过』。按『在某个 fixture.toml 里被点过名』算的话,一个纯 TS 项目会打出『12 blocking tools covered』,而其中 11 个的样本因为语言不适用或布局不匹配一次都没种下去——那是一句假的绿。",
-  "shared_root_cause": "剩下这两条不是布局问题,是本项目缺自己的样本:dependency-change-approval 需要一份 package.json 变更样本(模板那份种的是 requirements.txt);semgrep 需要一条 TypeScript 规则(.semgrep/ 里现有的 no-raw-sleep 声明 languages: [python])。两条都要在本项目里补,框架侧补不了。",
   "verify_command": "uv run --project .ai-config python tools/gate.py gate-fixtures",
-  "entries": {
-    "dependency-change-approval": {
-      "reason": "gates/dependency-approval/tree 种的是 requirements.txt,而本项目 contracts.dependency_files 认的是 package.json 与 package-lock.json,种进去没有任何闸会看它。",
-      "clear_when": "gates/dependency-approval/tree 里出现一份 package.json 变更样本之后,verify_command 的输出里不再出现 dependency-change-approval。",
-      "registered": "2026-07-30"
-    },
-    "semgrep": {
-      "reason": "gates/semgrep/tree 种的是 src/project/features 下的 .py(裸 time.sleep),不在本项目 include_globs 内;且本项目未声明 python,该规则本就不会命中。",
-      "clear_when": "gates/semgrep/ 出现一份 TypeScript 的违规样本且落进 src/**/*.ts 或 src/**/*.tsx 之后,verify_command 的输出里不再出现 semgrep。",
-      "registered": "2026-07-30"
-    }
-  }
+  "entries": {},
+  "history": "2026-07-30 曾登记 10 条欠账,全部销清:3 条是判据判紧了白欠的(backend-contracts / backend-contracts-changed / detect-secrets),5 条由新增的 TypeScript 双胞胎样本解决,2 条由本项目自己的样本解决(package.json 追加片段 / TS 版 no-raw-async-sleep 规则)。"
 }

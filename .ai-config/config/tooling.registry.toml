@@ -607,6 +607,11 @@ path = ".semgrep/no-raw-sleep.yml"
 owner_rule = ".ai-config/AGENTS.md"
 purpose = "Non-test Python code should not use raw time.sleep(); prefer polling/explicit waits, annotate business-required fixed waits."
 
+[[semgrep_rulesets]]
+path = ".semgrep/no-raw-async-sleep.yml"
+owner_rule = ".ai-config/AGENTS.md"
+purpose = "Non-test TypeScript/JavaScript should not `await new Promise(r => setTimeout(r, n))` to wait on external state; prefer polling/explicit conditions."
+
 [[tools]]
 id = "import-cycles-changed"
 languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过

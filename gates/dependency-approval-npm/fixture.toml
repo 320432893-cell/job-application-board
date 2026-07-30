@@ -1,0 +1,7 @@
+tools = ["dependency-change-approval"]
+violates = "暂存了依赖清单(package.json)变更但没有显式放行环境变量"
+stage = true
+# Python 那份双胞胎在 gates/dependency-approval,种的是 requirements.txt。
+# npm 项目的清单是既有文件,不能整份替换(plant 会拒绝),所以走 append/ 追加片段:
+# 这道闸的判据是"暂存了哪些文件名",追加一个空行就足以构成一次清单变更。
+language = "typescript"

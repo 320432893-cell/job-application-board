@@ -34,6 +34,28 @@ ALLOWED_STAGE_GATES = {
     "review-material",
     "reversibility",
 }
+# 字段名白名单。写错一个字段名(enforcment / langauges / pre_commit_hok)今天是**静默无效**:
+# TOML 照样解析,那条声明就此消失,而其余 613 行契约代码一条都不查未知键 —— 实测三个 typo
+# 之后所有闸仍然 rc=0,而 orphan-module 的 pre_commit_hook 已经没了。
+KNOWN_TOOL_FIELDS = frozenset(
+    {
+        "boundary", "capability_id", "changed_adapter", "changed_when",
+        "ci_commands", "cleanup_replacement", "configured_in", "enforcement",
+        "entrypoint_commands", "fixture_exempt", "fixture_exempt_reason", "id",
+        "kind", "languages", "manual_commands", "package", "parent_tool",
+        "pre_commit_hook", "pre_commit_hooks", "purpose", "relaxed",
+        "relaxed_reason", "reopen_when", "required_paths", "rule",
+        "scope", "stage_gate", "stages", "trigger_on_configured_in", "utility",
+    }
+)  # fmt: skip
+KNOWN_METADATA_FIELDS = frozenset(
+    {
+        "capability_cli_adapters", "capability_cli_owners", "changed_event_kinds",
+        "checker", "human_doc", "launch_entrypoint", "owner_rule",
+        "unified_entrypoint", "version",
+    }
+)  # fmt: skip
+KNOWN_TOP_LEVEL_KEYS = frozenset({"metadata", "semgrep_rulesets", "tools"})
 ALLOWED_ENFORCEMENTS = {"advisory", "blocking", "material"}
 MATERIAL_STAGE_GATES = {"agent-review", "review-material"}
 BLOCKING_STAGE_GATES = ALLOWED_STAGE_GATES - MATERIAL_STAGE_GATES
@@ -580,8 +602,29 @@ def _check_blocking_capability_reachability(tools_by_id: dict, issues: list[Any]
             )
 
 
+def _check_unknown_keys(registry: dict, issues: list[Any], issue_type: type) -> None:
+    """未知键即报错。白名单只增不改:加新字段时同步加进 KNOWN_*,那一步就是"这个字段有人消费"的确认。"""
+    unknown = "(拼错的键会被静默忽略)"
+    issues.extend(
+        issue_type("ERROR", f"registry 顶层未知键 `{key}`{unknown}")
+        for key in sorted(set(registry) - KNOWN_TOP_LEVEL_KEYS)
+    )
+    issues.extend(
+        issue_type("ERROR", f"registry metadata 未知键 `{key}`{unknown}")
+        for key in sorted(set(registry.get("metadata", {})) - KNOWN_METADATA_FIELDS)
+    )
+    for index, tool in enumerate(registry.get("tools", [])):
+        # 报 id 不报下标:41 条里数第 6 条是纯粹的复核成本。id 本身缺失时才退回下标。
+        where = str(tool.get("id") or f"tools[{index}]")
+        issues.extend(
+            issue_type("ERROR", f"tool {where}: 未知字段 `{key}`{unknown}")
+            for key in sorted(set(tool) - KNOWN_TOOL_FIELDS)
+        )
+
+
 def check(root: pathlib.Path, registry: dict, issues: list[Any], issue_type: type) -> None:
     """按原顺序跑完各段 registry 契约检查；拆分只为控制单函数体量，issue 文案与顺序不变。"""
+    _check_unknown_keys(registry, issues, issue_type)
     _check_unified_entrypoint_markers(root, registry, issues, issue_type)
 
     stages = registry_stages(registry)

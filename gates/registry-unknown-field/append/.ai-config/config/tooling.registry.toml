@@ -1,0 +1,13 @@
+
+[[tools]]
+id = "_fx_unknown_field"
+capability_id = "_fx_unknown_field"
+kind = "project-static-tool"
+purpose = "反向样本:这条声明里 enforcment 是 enforcement 的 typo。"
+rule = ".ai-config/AGENTS.md"
+configured_in = [".ai-config/config/tooling.registry.toml"]
+entrypoint_commands = ["uv run python tools/check.py _fx_unknown_field"]
+stages = ["cleanup"]
+enforcment = "blocking"
+scope = "样本专用,不会被真跑到。"
+boundary = "样本专用。"

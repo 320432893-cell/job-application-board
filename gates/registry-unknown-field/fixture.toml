@@ -1,0 +1,2 @@
+tools = ["rule-tool-contracts"]
+violates = "registry 里写错字段名(enforcment/pre_commit_hok):TOML 照样解析,那条声明静默消失"

@@ -242,7 +242,7 @@ def check_tools(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None
     pre_commit_config = load_pre_commit_config(root / ".pre-commit-config.yaml")
     # 只核对"这个项目真会跑到"的工具。声明了 languages 的工具在没声明那门语言的项目里根本不会
     # 被调用(见 check.py 的同一条判据),再去追问它的 .ruff.toml / pyproject.toml 在不在,报的是
-    # 纯噪音——实测纯 TS 仓被这类淹掉 10 条 ERROR,真问题反而看不见。
+    # 纯噪音——这类误报会成片刷出来,把真问题淹掉。
     # 只裁这里:本函数问的是"这个工具在本项目里接好线了吗",对不适用的工具无意义;而 registry
     # 自身一致性那几条(检查脚本有没有登记、扫描命令卫生)与语言无关,不能跟着裁。
     declared = {str(lang.get("id", "")) for lang in load_project_model().get("languages", [])}
@@ -532,6 +532,10 @@ def _check_project_model_members(model: dict, issues: list[Issue]) -> None:
 
 
 def _check_project_model_risk_rules(model: dict, trait_ids: set[str], issues: list[Issue]) -> None:
+    # 空表和"每条都合法"是两回事:一条都不声明时下面整个循环零轮,恒真通过,而 stage-packet
+    # 的 risk_flags 从此恒为空 —— 看着像"这次很干净"。缺失型判据必须单独写,循环查不出来。
+    if str(model.get("metadata", {}).get("governance_mode", "native")) != "foreign" and not model.get("risk_rules"):
+        issues.append(Issue("ERROR", "project_model 没有声明任何 [[risk_rules]]:风险评估会恒为空"))
     try:
         risk_conditions = known_risk_conditions()
     except Exception as exc:  # noqa: BLE001
@@ -549,6 +553,9 @@ def _check_project_model_risk_rules(model: dict, trait_ids: set[str], issues: li
 
 
 def _check_project_model_agent_reviews(model: dict, issues: list[Issue]) -> None:
+    # 同上:0 个模板时 subagent-review 无材料可生成,审查链没有起点。
+    if str(model.get("metadata", {}).get("governance_mode", "native")) != "foreign" and not model.get("agent_reviews"):
+        issues.append(Issue("ERROR", "project_model 没有声明任何 [[agent_reviews]]:子 agent 审查链没有起点"))
     review_ids: list[str] = []
     for review in model.get("agent_reviews", []):
         review_id = str(review.get("id", "")).strip()
@@ -796,7 +803,7 @@ def check_detect_secrets_exclusions_agree(root: pathlib.Path, registry: dict, is
     两处都必须列同一批路径。
 
     为什么不合并成一份:一处是 TOML 里的 shell 参数,一处是 YAML 里的多行正则,没有共同的宿主。
-    合不了就至少别让它们静默分叉——实测分叉的后果是 pre-commit 绿、全量扫红,同一份文件两种结论。
+    合不了就至少别让它们静默分叉——分叉的后果是 pre-commit 绿、全量扫红,同一份文件两种结论。
     """
     command = " ".join(
         str(item)
@@ -807,7 +814,7 @@ def check_detect_secrets_exclusions_agree(root: pathlib.Path, registry: dict, is
     hook = find_pre_commit_hook(load_pre_commit_config(root / ".pre-commit-config.yaml"), "detect-secrets")
     excluded = str((hook or {}).get("exclude") or "")
     # 抹掉反斜杠再做子串比对,不要 re.escape:它会把 `-` 也转义成 `\-`,而两份正则里写的都是裸 `-`,
-    # 于是"两边都找不到"→ 两边一致 → 恒真通过。第一版就是这么写的,消融时一条都没红。
+    # 于是"两边都找不到"→ 两边一致 → 恒真通过,这道闸就没牙了。
     for path in (".ai-config/template-state.json", "uv.lock", ".ai-config/config/settings.json"):
         in_command, in_hook = path in command.replace("\\", ""), path in excluded.replace("\\", "")
         if in_command != in_hook:
@@ -850,7 +857,7 @@ def check_rule_references(root: pathlib.Path, issues: list[Issue]) -> None:
     # 里面第三方包的文档里满是 `rules/xxx.md` 这类字符串,不跳会刷屏误报。
     # 判据取自 project_model.ignore.patterns 的静态目录名,不另立一份清单。
     # 框架级兜底:闸层自己会在 .ai-config/.venv 建虚拟环境,不能指望每个项目的校准模型都记得
-    # 把它写进 ignore.patterns(实测就漏过一次,第三方包文档里的 `rules/xxx.md` 直接刷屏)。
+    # 把它写进 ignore.patterns。
     # 这几个名字任何语言下都不是源码,由框架兜住;项目模型只做补充。
     ignored_names = {".venv", "node_modules", "__pycache__", ".git"}
     ignored_names |= {
@@ -868,10 +875,9 @@ def check_rule_references(root: pathlib.Path, issues: list[Issue]) -> None:
                 and not (set(path.parts) & ignored_names)
                 and path.suffix.lower() in {".md", ".py", ".sh", ".toml", ".yaml", ".yml", ".json", ".template"}
             )
-    # 原来这里是一张 30 条"历史已删规则路径"的手工黑名单。它有结构性洞:退休规则时得有人
-    # 记得往表里加,而实测漏过(ML 规则退休时 modes.index.md / ml-timeseries.yml 都没登记)。
-    # 换成通用判据:凡在文档/配置里被引用的规则或 semgrep 文件,必须真的存在。它覆盖所有过期
-    # 引用(含没人记得登记的),且不会腐化。`*.details.md` 那类结构禁令由 check_rule_structure 管。
+    # 通用判据而不是"历史已删规则路径"黑名单:黑名单要求退休规则时有人记得往表里加,漏了
+    # 没人会发现。这里的判据是"凡在文档/配置里被引用的规则或 semgrep 文件必须真的存在",
+    # 覆盖所有过期引用且不会腐化。`*.details.md` 那类结构禁令由 check_rule_structure 管。
     for path in targets:
         if not path.exists() or path == checker_path:
             continue

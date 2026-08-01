@@ -28,10 +28,6 @@ pytest = "pytest"
 radon = "radon"
 ruff = "ruff-check"
 semgrep = "semgrep"
-vulture = "vulture"
-
-[metadata.capability_cli_adapters]
-radon = ["complexity"]
 
 [[tools]]
 id = "python-compile"
@@ -169,6 +165,8 @@ id = "stage-packet"
 capability_id = "review-packet"
 kind = "project-static-tool"
 stage_gate = "review-material"
+# 它在"一条 [[risk_rules]] 都没声明"时也会非零退出,但那条判据的正主是 rule-tool-contracts
+# (模型完整性契约,已在 pre-commit 自动触发);这里的退出只是使用现场的兜底,不是执法点。
 enforcement = "material"
 purpose = "Build a structured stage review packet for contract, dependency, entrypoint, public API, delete/rename, and cross-zone risks."
 rule = ".ai-config/AGENTS.md"
@@ -183,6 +181,7 @@ id = "subagent-review-stage"
 capability_id = "subagent-review"
 kind = "project-static-tool"
 stage_gate = "agent-review"
+# 同 stage-packet:0 个 [[agent_reviews]] 的执法点在 rule-tool-contracts,这里只兜底。
 enforcement = "material"
 purpose = "Generate declared stage subagent review prompts from project_model, inventory, and stage packet."
 rule = ".ai-config/AGENTS.md"
@@ -265,10 +264,10 @@ package = "basedpyright"
 purpose = "Type, signature, optionality, and static Python type consistency checks."
 rule = ".ai-config/AGENTS.md"
 # pyrightconfig.json 必须有,而且必须随受管清单发给每个 Python 项目:
-# basedpyright 裸跑用的是它最严的 recommended 档,实测 2662 条里 2419 条是"类型未知"族的
-# strictness 噪音(reportAny 683、reportUnknownMemberType 525…),真 error 只有 243 条。
-# 一道常年 2600 条的红灯等于没有红灯 —— 没人看,也没人修。standard 档 + 排除 gates 后剩 81 条真 error。
-# 另外 exclude 会整体替换 pyright 的默认排除,所以 **/.* 必须写回来,漏了会去扫 .venv(实测跑到超时)。
+# basedpyright 裸跑用的是它最严的 recommended 档,九成以上是"类型未知"族的 strictness 噪音
+# (reportAny / reportUnknownMemberType 之类),真 error 淹在里面。一道常年几千条的红灯等于
+# 没有红灯。用 standard 档 + 排除 gates。
+# 另外 exclude 会整体替换 pyright 的默认排除,所以 **/.* 必须写回来,漏了会去扫 .venv 直到超时。
 configured_in = ["pyrightconfig.json"]
 pre_commit_hook = "basedpyright"
 entrypoint_commands = ["uv run basedpyright"]
@@ -393,20 +392,6 @@ entrypoint_commands = ["uv run radon mi {fixed_quality_paths} -s"]
 stages = ["deep", "cleanup"]
 scope = "Use MI for 80/20 maintainability triage in code_layout.fixed_quality_dirs; CC≥21 is collected once by `complexity`."
 boundary = "MI suggests discussion; it does not mandate a refactor. CC thresholds are intentionally not recomputed here."
-
-[[tools]]
-id = "vulture"
-languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
-capability_id = "dead-code"
-kind = "python-dev-tool"
-package = "vulture"
-purpose = "Likely dead code and unused symbol scan."
-rule = ".ai-config/rules/engineering/code.index.md"
-configured_in = ["pyproject.toml"]
-entrypoint_commands = ["uv run vulture {fixed_quality_paths} --min-confidence 80"]
-stages = ["deep", "cleanup"]
-scope = "Use for cleanup discussion in code_layout.fixed_quality_dirs; old projects may have dynamic entry points and compatibility shims."
-boundary = "Never delete solely from Vulture output without checking runtime entry points and tests."
 
 [[tools]]
 id = "deptry"
@@ -568,19 +553,6 @@ scope = "从 project_model 派生 feature、entrypoint、test 目录；feature �
 boundary = "只生成骨架，不写业务逻辑、不覆盖已存在文件；跨 feature 依赖只经 project_model 的 architecture.cross_feature_entrypoint，AI 仍须填实际职责与断言。"
 
 [[tools]]
-id = "complexity"
-languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
-capability_id = "file-complexity"
-kind = "project-static-tool"
-purpose = "函数圈复杂度硬闸：冻结存量 CC≥21(radon rank D+) 的复杂块数(计数型棘轮·只减不增)，新增/变多即阻塞；<21(rank C) 仍归 radon deep 建议不阻塞。"
-rule = ".ai-config/AGENTS.md"
-configured_in = ["tools/check_complexity.py", "tools/check.py", ".ai-config/config/complexity.baseline.json"]
-entrypoint_commands = ["uv run python tools/check_complexity.py"]
-stages = ["ci", "cleanup"]
-scope = "code_layout.fixed_quality_dirs 的函数/方法圈复杂度(radon cc -j)。"
-boundary = "只卡 CC≥21 的块数是否超基线；不重构、不评判某处复杂是否正当、不管 <21 的(那归 deep 建议)。"
-
-[[tools]]
 id = "dup-symbol"
 languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
 fixture_exempt = true
@@ -708,4 +680,8 @@ entrypoint_commands = ["uv run python tools/check_orphan_module.py"]
 changed_when = ["python"]
 stages = ["stage", "ci", "cleanup"]
 scope = "Modules with zero inbound imports, excluding declared entrypoints, registry CLI targets, test-zone files and __init__.py."
-boundary = "Module level only; symbol-level dead code stays with vulture/knip/deadcode. It never deletes anything—it forces a decision."
+boundary = """Module level only; it never deletes anything—it forces a decision.
+登记(2026-08-02):符号级死码本仓无机器闸。vulture 已退休——实测在本仓 9250 行上,
+--min-confidence 80 报 2 条全假、60 报 30 条只有 1 条真,因为它看不见 pydantic 声明式
+字段和 env_from(globals()) 名字派发这两类用法。清除条件:出现一个能理解这两类动态用法
+的符号级死码工具(或本仓不再使用这两种模式)。在那之前归 code.index.md 的复核清单。"""

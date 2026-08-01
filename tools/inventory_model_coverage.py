@@ -28,9 +28,7 @@ def is_under(path_name: str, directory: str) -> bool:
 def source_names(root: Path, model: ProjectModel) -> set[str]:
     """磁盘上属于本项目声明语言的源码文件。
 
-    写死 *.py 的后果实测过:纯 TS 项目里它扫出 3357 个 .py(连 .venv 都走),而进入候选的是 0 个,
-    quality_fixed 区守住的也是 0 个 —— 这道"防止改模型降标"的闸在非 Python 项目里等于不存在,
-    而且全程绿灯。
+    写死 *.py 会让这道"防止改模型降标"的闸在非 Python 项目里守住 0 个文件,而且全程绿灯。
 
     刻意**不**用模型的 ignore 过滤:这道闸查的就是"有没有靠新加 ignore 把既有代码移出扫描",
     拿被测对象当过滤器等于自证清白。只剪掉框架级永不可能是源码的目录(.venv/node_modules/…)。

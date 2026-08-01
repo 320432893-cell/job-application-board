@@ -1,0 +1,4 @@
+tools = ["rule-tool-contracts", "stage-packet"]
+violates = "project_model 里一条 [[risk_rules]] 都没有 —— 风险评估恒为空,packet 却照报 risk_flags: []"
+# 缺失型判据("该有而没有")靠 tree/ 和 append/ 都表达不出来:它要的是拿掉,不是加上。
+strip = [{ file = ".ai-config/project_model.toml", table = "risk_rules" }]

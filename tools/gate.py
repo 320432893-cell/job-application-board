@@ -5,12 +5,11 @@
 # 谁不应该 import：任何东西。这是进程入口,只被命令行调用。
 """闸的统一入口:环境在一处决定,53 个调用点不用各自知道。
 
-为什么存在(真实事故):`uv run python tools/check.py` 在自有 Python 仓库里能跑——根
-pyproject 的 dev 组里就有闸的依赖;但接管态的纯 TS/Go 仓库根目录没有 pyproject,uv 给的是
-裸 python,check.py 第一行 import 就 ModuleNotFoundError: pydantic。表现是接管之后每次
-commit 都被 pre-commit 拦下。
+为什么存在:`uv run python tools/check.py` 在自有 Python 仓库里能跑——根 pyproject 的 dev 组里
+就有闸的依赖;但接管态的纯 TS/Go 仓库根目录没有 pyproject,uv 给的是裸 python,check.py 第一行
+import 就 ModuleNotFoundError: pydantic。
 
-为什么不是"全部改成 --project .ai-config":实测过,那样会把 Python 项目跑坏——
+为什么不是"全部改成 --project .ai-config":那样会把 Python 项目跑坏——
   uv run python tools/check.py import-linter                 → Contracts: 1 kept, 0 broken.
   UV_PROJECT=.ai-config uv run python tools/check.py import-linter
                                                              → Could not find package 'project'

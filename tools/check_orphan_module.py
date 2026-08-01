@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # 职责：零消费者闸——新增的模块若没有任何调用方，MUST 同时登记"预期消费者 + 可判定的清除条件 + 日期"，否则阻塞。
-# 不做什么：不判断符号级死码(那是 vulture/knip/deadcode 的活)、不自动删任何文件、不替人决定该不该留。
+# 不做什么：不判断符号级死码(本仓无机器闸,归复核;登记见 registry orphan-module.boundary)、不自动删任何文件、不替人决定该不该留。
 # 允许依赖层：标准库、inventory 产出的导入图、baseline_policy、registry。
 # 谁不应该 import：正式业务代码、测试夹具、应用入口不应 import 本检查脚本。
 """Zero-consumer gate: a module nobody imports must declare who will use it and when it can go.

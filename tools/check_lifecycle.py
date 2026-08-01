@@ -1,7 +1,7 @@
 # 职责：扫生命周期身份标注——报 非正式区(scripts/devtools/tmp/probes)文件缺 # lifecycle: 身份标注
 #       (存量挂 baseline 棘轮·新增阻塞)、标 devtool 却不在 devtools/。
 # 不做什么：不删文件、不归档；不再管 expires 日期/superseded 标记那套（理想情况设计·0 使用，已删——
-#           旧码清理交「取代纪律」的状态推导：死码 vulture + 重复块 + 晋升门，不靠自愿写日期/贴标）。
+#           旧码清理交「取代纪律」的状态推导：死码复核 + 重复块 + 晋升门，不靠自愿写日期/贴标）。
 # 允许依赖层：标准库、本仓库 git 工作区状态、被扫描的源码注释、lifecycle baseline 文件。
 # 谁不应该 import：正式业务代码、测试夹具、应用入口不应 import 本检查脚本。
 """Lifecycle identity-tag check: informal-zone files must carry a `# lifecycle:` tag;

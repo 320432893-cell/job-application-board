@@ -8,8 +8,8 @@
 从 inventory.py 拆出来:那份文件顶到了超行数棘轮,而 `ruff format` 还要再加 19 行 —— 棘轮登记的
 split_when 要的就是这类外迁,不是把基线放大。这一族(git 调用 + 变更清单)本身也是独立关注点。
 
-后缀一律跟着 project_model 走。写死 *.py 的历史后果实测过:非 Python 项目里清单恒空,
-所有 *-changed 闸看到零个文件、一律绿灯 —— 整档静默不检查。
+后缀一律跟着 project_model 走。写死 *.py 会让非 Python 项目的清单恒空,所有 *-changed 闸
+看到零个文件、一律绿灯 —— 整档静默不检查。
 """
 
 from __future__ import annotations

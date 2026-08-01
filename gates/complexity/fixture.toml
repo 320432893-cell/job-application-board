@@ -1,2 +1,4 @@
-tools = ["complexity"]
-violates = "正式区新增 CC≥21 的超复杂函数(复杂度棘轮只减不增)"
+tools = ["ruff-staged", "ruff-check"]
+violates = "正式区新增 mccabe 圈复杂度 >15 的缠绕函数(控制流复杂,非推导式计数)"
+language = "python"
+stage = true

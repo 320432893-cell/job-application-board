@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import error_report
 import inventory as inventory_tool
 import project_bootstrap as bootstrap_tool
 import project_discovery as discovery_tool
@@ -54,6 +55,8 @@ def compact_stage_packet(packet: dict[str, Any]) -> dict[str, Any]:
     changed_files = packet.get("changed_files", [])
     return {
         "risk_flags": packet.get("risk_flags", []),
+        # 分母跟着 risk_flags 一起走:空的 risk_flags 只有配上"声明了几条"才能判断是干净还是没规则。
+        "declared": packet.get("declared", {}),
         "changed_count": len(changed_files),
         "stage_tool_skips": packet.get("stage_tool_skips", []),
     }
@@ -243,7 +246,7 @@ def prompt_for(review: dict[str, Any], context: dict[str, Any]) -> str:
 - bootstrap_referenced_targets: `{json.dumps(context["project_bootstrap"]["referenced_targets_sample"][:10], ensure_ascii=False)}`
 - discovery_summary: `{json.dumps(context["project_discovery"]["summary"], ensure_ascii=False)}`
 - discovery_findings_sample: `{json.dumps(context["project_discovery"]["findings_sample"][:10], ensure_ascii=False)}`
-- risk_flags: `{", ".join(context["stage_packet"]["risk_flags"]) or "none"}`
+- risk_flags: `{", ".join(context["stage_packet"]["risk_flags"]) or "none"}`（本项目声明 {context["stage_packet"].get("declared", {}).get("risk_rules", "?")} 条危险规则 / {context["stage_packet"].get("declared", {}).get("agent_reviews", "?")} 个审查模板）
 - stage_tool_skips: `{json.dumps(context["stage_packet"].get("stage_tool_skips", []), ensure_ascii=False)}`
 - changed_count: {context["stage_packet"]["changed_count"]}
 - stage_gate_groups: `{json.dumps(context["stage_gate_groups"], ensure_ascii=False)}`
@@ -297,9 +300,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     model = load_project_model_dict(MODEL_PATH)
+    declared = [item for item in model.get("agent_reviews", []) if isinstance(item, dict)]
+    if not declared:
+        # "没东西可审"和"审完没问题"必须是不同的退出码,否则审查链断了也报绿。
+        raise error_report.abort(
+            step="[subagent-review] 生成子 agent 审查材料",
+            reason="project_model.toml 没有声明任何 [[agent_reviews]]，审查链没有起点",
+            expect_actual="预期:至少 1 条 [[agent_reviews]];现状:0 条",
+            fix="从模板 .ai-config/project_model.toml 抄 [[agent_reviews]] 段过来,或按本项目实际关心的维度自己写",
+            audience="项目 owner",
+        )
     reviews = review_items(model, args.stage)
     if not reviews:
-        print(f"[subagent-review] no reviews configured for {args.stage}")
+        # 有声明但没覆盖本档,是合法配置(例如只在 cleanup 审),照常放行但把分母说出来。
+        print(f"[subagent-review] 已声明 {len(declared)} 个审查模板,但没有一个覆盖 {args.stage} 档")
         return 0
     context = build_context(args.stage)
     result = write_packets(args.stage, context, reviews)

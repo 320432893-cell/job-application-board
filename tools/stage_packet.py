@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import error_report
 import inventory as inventory_tool
 import lang_python
 import tooling_registry
@@ -208,6 +209,15 @@ def evaluate_risk_rules(packet: dict, model: inventory_tool.ProjectModel, invent
     return sorted(set(flags))
 
 
+def declared_counts() -> dict[str, int]:
+    """本项目声明了多少条危险规则 / 多少个审查模板 —— packet 里所有"零结果"的分母。"""
+    model_dict = load_project_model_dict()
+    return {
+        "risk_rules": len(model_dict.get("risk_rules", [])),
+        "agent_reviews": len(model_dict.get("agent_reviews", [])),
+    }
+
+
 def declared_language_ids() -> set[str]:
     return tooling_registry.declared_language_ids(load_project_model_dict())
 
@@ -215,8 +225,8 @@ def declared_language_ids() -> set[str]:
 def is_declared_source(path_name: str) -> bool:
     """这个路径是不是本项目声明语言的源码。
 
-    写死 `.py` 的后果是**错标而不是漏报**:实测纯 TS 项目里 src/utils/x.ts 被打成 zone=non_python,
-    而它明明在 formal 区 —— 提交前给人和子 agent 看的就是这份 packet,标错等于把复核引到沟里。
+    写死 `.py` 的后果是**错标而不是漏报**:TS 源码会被打成非源码区,而它明明在 formal 区 ——
+    提交前给人和子 agent 看的就是这份 packet,标错等于把复核引到沟里。
     """
     return Path(path_name).suffix in set(source_suffixes(load_project_model()))
 
@@ -228,8 +238,8 @@ def skipped_stage_tools() -> list[dict[str, object]]:
         tool_id = str(tool.get("id", "")).strip()
         if not tool_id or "stage" not in [str(stage) for stage in tool.get("stages", [])]:
             continue
-        # 语言不适用的工具本来就不该跑,把它记成"必需工具被跳过"会让纯 TS 项目每次提交都举一面
-        # 假风险旗(实测:import-linter 缺 .importlinter —— 而那份配置正是按语言故意不装的)。
+        # 语言不适用的工具本来就不该跑:按语言故意不装的配置(如 TS 项目没有 .importlinter)
+        # 若被记成"必需工具被跳过",每次提交都会举一面假风险旗。
         if not tooling_registry.applies_to_languages(tool, declared_language_ids()):
             continue
         missing = tooling_registry.missing_required_paths(tool_id, ROOT, registry)
@@ -301,6 +311,8 @@ def build_packet() -> dict:
             if violation.get("kind") == "import_policy_violation"
         ],
         "stage_tool_skips": skipped_stage_tools(),
+        # 分母必须跟结果同行:`risk_flags: []` 单独看像"这次很干净",也可能是"一条规则都没声明"。
+        "declared": declared_counts(),
     }
     packet["risk_flags"] = [] if foreign else evaluate_risk_rules(packet, model, inventory)
     if not foreign and packet["stage_tool_skips"]:
@@ -326,7 +338,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     write_packet(packet)
     print(f"[stage-packet] wrote {PACKET_PATH.relative_to(ROOT)}")
-    print(f"[stage-packet] risk_flags: {', '.join(packet['risk_flags']) or 'none'}")
+    declared = packet["declared"]
+    print(
+        f"[stage-packet] risk_flags: {', '.join(packet['risk_flags']) or 'none'}"
+        f"  (危险规则 {declared['risk_rules']} 条 / 审查模板 {declared['agent_reviews']} 个"
+        f" / 改动 {len(packet['changed_files'])} 文件)"
+    )
+    if packet["governance_mode"] != "foreign" and declared["risk_rules"] == 0:
+        raise error_report.abort(
+            step="[stage-packet] 评估本次改动的风险面",
+            reason="project_model.toml 没有声明任何 [[risk_rules]]，风险评估恒为空",
+            expect_actual=f"预期:至少 1 条 [[risk_rules]];现状:0 条(本次改动 {len(packet['changed_files'])} 个文件)",
+            fix="从模板 .ai-config/project_model.toml 抄 [[risk_rules]] 段过来,或按本项目实际关心的风险自己写",
+            audience="项目 owner",
+        )
     return 0
 
 

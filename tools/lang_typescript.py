@@ -8,13 +8,12 @@
 **粒度**:TS 的 import 指向**文件**(解析后带扩展名),和 Python 一样是文件级;Go 是包级。
 所以三门语言两种粒度,框架的边记录两者都吃(见 inventory 里的 go_package_edges 注释)。
 
-**两个实测出来的必要条件**(照真实项目 job-application-board 验的,不是照文档猜的):
+**dependency-cruiser 的两个必要条件**(文档里没有,改动这段前先确认它们还成立):
 1. 必须传**显式文件清单**。传目录时 `totalCruised` 是 0——它需要配置才知道哪些扩展名
    算源码,而目录遍历发生在那之前。传文件则绕过这一步。
 2. 必须给一份**最小配置**。`--no-config` 会连 `enhancedResolveOptions.extensions` 一起
-   关掉,于是 `./components/AppLayout` 这种相对 import 解析不出真实路径(只回显原样)。
-   给了配置之后实测 57/57 条边全部解析成带扩展名的仓库相对路径。
-   注意 `--ts-config tsconfig.json` **不能**替代这份配置,实测无效。
+   关掉,于是 `./components/AppLayout` 这种相对 import 只回显原样、解析不出真实路径。
+   `--ts-config tsconfig.json` **不能**替代这份配置。
 
 Go 侧零配置(`go list` 自带全部语义)、Python 侧零配置(ast 是标准库);TS 是三者里唯一
 需要适配器自己造配置的,这是工具链差异,不是设计选择。

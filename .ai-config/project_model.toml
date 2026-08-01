@@ -17,7 +17,6 @@ include_globs = ["src/**/*.ts", "src/**/*.tsx", "probes/**/*.ts", "probes/**/*.t
 # TS 侧的债要等 eslint/knip 接进来才会有。
 managed_baselines = [
     "config/oversized.baseline.json",
-    "config/complexity.baseline.json",
 ]
 inventory_violation_baseline = "config/inventory-violations.baseline.json"
 
@@ -115,3 +114,108 @@ contract_files = [
     "eslint.config.js",
 ]
 dependency_files = ["package.json", "package-lock.json"]
+
+# ── 危险规则:什么样的改动算"该被复核"(留空会被 stage-packet 拦下) ──────
+# 模板 8 条,这里装 5 条;另 3 条及其清除条件见文件末尾登记。
+
+[[risk_rules]]
+id = "contract_changed"
+condition = "changed_contract_files"
+
+[[risk_rules]]
+id = "dependency_changed"
+condition = "changed_dependency_files"
+
+[[risk_rules]]
+id = "entrypoint_changed"
+condition = "zone_trait_changed"
+zone_trait = "entrypoint"
+
+[[risk_rules]]
+id = "import_policy_violation"
+condition = "inventory_violation"
+violation_kind = "import_policy_violation"
+
+[[risk_rules]]
+id = "changed_file_unclassified"
+condition = "changed_python_unclassified"
+
+# 下面两条对 .py 有效、对 .ts/.tsx 瞎。本项目的 .py 是 tools/ 和 .ai-config/tools/ 那批闸实现,
+# 它们的导出变更和删改名是真风险,所以装上;TS 侧的同类风险见 ts-blind-spot 审查模板。
+[[risk_rules]]
+id = "public_api_changed"
+condition = "public_api_changed"
+
+[[risk_rules]]
+id = "python_deleted_or_renamed"
+condition = "python_deleted_or_renamed"
+
+# ── 子 agent 审查模板:改动落地后派谁看、看什么、问什么 ──────────────────
+[[agent_reviews]]
+id = "architecture"
+title = "架构边界审查"
+stages = ["stage", "cleanup"]
+focus = [
+    "依赖方向是否反了,formal 是否依赖了 probes/tools 这类临时区或工具区",
+    "本次改动是否把临时做法混进 src/ 正式路径",
+    "components/pages/store/utils 的归属是否还表达真实边界",
+]
+questions = [
+    "哪些风险是机器证据坐实的,哪些只是候选",
+    "有没有模型表达不足导致误报/漏报,而不是代码本身坏",
+    "如果要继续优化,最小根因改法是什么",
+]
+
+[[agent_reviews]]
+id = "contract"
+title = "承重契约审查"
+stages = ["stage", "cleanup"]
+focus = [
+    "入口(src/main.tsx)、配置、package.json 依赖、导出接口、删除/改名是否触及承重墙",
+    "契约变化是否有回滚或迁移说明",
+    "新增依赖是否有消费者、触发方式和清除条件",
+]
+questions = [
+    "这次最不可逆的变化是什么",
+    "哪些需要人拍板,哪些只是机器可修",
+    "哪些契约应该沉淀进 project_model",
+]
+
+[[agent_reviews]]
+id = "drift"
+title = "反漂移/清债审查"
+stages = ["stage", "cleanup"]
+focus = [
+    "是否出现双源事实、枚举式补丁、规则和实现不同步",
+    "死码、重复组件、孤儿 util 是否形成模式",
+    "哪些规则太脆弱应该缩掉,哪些模型事实缺失应该补上",
+]
+questions = [
+    "这是不是同类问题第二次出现",
+    "当前红灯是真债、模型误分区,还是规则过度设计",
+    "下一轮应该先清哪一类债,为什么",
+]
+
+[[agent_reviews]]
+id = "ts-blind-spot"
+title = "TS 侧盲区审查"
+stages = ["stage", "cleanup"]
+focus = [
+    "只看 .ts/.tsx:导出接口的签名/默认值变化,机器规则 public_api_changed 对 TS 瞎",
+    "只看 .ts/.tsx:文件删除或改名后引用是否跟上,python_deleted_or_renamed 对 TS 瞎",
+]
+questions = [
+    "本次有没有导出接口的签名/默认值变化,调用方都跟上了吗",
+    "有没有文件被删或改名,引用都改了吗",
+    "这两条什么时候能交回机器(见 project_model 末尾的登记)",
+]
+
+# ── 登记:模板有、这里没装的 1 条危险规则(2026-08-02)──────────────────
+# formal_changed_without_test_change
+#   消费者:stage-packet 的 risk_flags
+#   原因:本项目没有带 test_like trait 的分区,装进来每次改 src/ 都恒红。
+#   清除条件:project_model 里出现带 test_like trait 的分区。
+#
+# 另:public_api_changed / python_deleted_or_renamed 已装,但只覆盖 .py。
+#   TS 覆盖的清除条件:lang_typescript.py 提供 public symbol 抽取,且 stage_packet 那两处
+#   `.py` 判断换成 is_declared_source()。届时删掉 ts-blind-spot 审查模板。

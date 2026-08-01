@@ -551,12 +551,11 @@ def project_model_dict(model: ProjectModel) -> dict:
 def path_matches(path_name: str, patterns: list[str]) -> bool:
     """按 gitignore 通配语义匹配。
 
-    为什么不用 PurePath.match:那里的 `**` 在 3.13 之前等同于 `*`,只吃掉一层目录。
-    实测后果——纯 TS 项目声明 `src/**/*.tsx`,28 个源文件里只有"src 下正好一层"的 13 个进了
-    导入图,src/components/** 和 src/App.tsx 全部静默消失,于是 src/router/index.tsx 被判成
-    零消费者(它的 import 方 src/App.tsx 根本不在图里)。图缺一半而没有任何红灯,是最坏的状态。
-    模板自己看不见这个 bug:它唯一的语言模式是 `**/*.py`,正好命中过去那条 startswith("**/")
-    的兜底分支。这类"只在被接管的项目里炸"的坑,判据必须换成真递归的那一种。
+    为什么不用 PurePath.match:那里的 `**` 在 3.13 之前等同于 `*`,只吃掉一层目录。后果是
+    `src/**/*.tsx` 只匹配到 src 下正好一层,更深的文件静默不进导入图,于是它们的消费者被判成
+    零消费者。图缺一半而没有任何红灯,是最坏的状态。
+
+    模板自己看不见这个坑:它唯一的语言模式是 `**/*.py`,命中 startswith("**/") 的兜底分支。
     """
     return bool(patterns) and _compiled_spec(tuple(patterns)).match_file(path_name)
 

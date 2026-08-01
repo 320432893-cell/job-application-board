@@ -13,11 +13,12 @@ parsing -- so fixtures do not rot when a tool changes its wording.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import baseline_policy
@@ -95,12 +96,11 @@ def planted_names(fixture: Fixture) -> list[str]:
 def sample_is_visible(fixture: Fixture) -> bool:
     """样本种下去之后,本项目的扫描范围里有它吗?
 
-    这个判断**只用来给失败分类,不用来决定跑不跑**。上一版拿它当跳过条件,结果预测错了三次:
-    实测(强行种下去的探针)backend-contracts / backend-contracts-changed / detect-secrets
-    在纯 TS 仓里明明拦得住——它们读的是模型声明和文件字节,根本不看源码图,却因为样本文件是
-    .py 被判成"看不见"而跳过,白欠了三条账。
+    这个判断**只用来给失败分类,不用来决定跑不跑**。拿它当跳过条件会误伤那些不看源码图、
+    只读模型声明和文件字节的闸(backend-contracts、detect-secrets 等):样本文件是 .py 就被
+    判成"看不见"而跳过,白欠一笔账。
 
-    所以现在的规矩是:能跑的都种下去跑,退 0 了再回头问"闸是真没牙,还是压根没看见这个样本"。
+    规矩是:能跑的都种下去跑,退 0 了再回头问"闸是真没牙,还是压根没看见这个样本"。
     别预测,按结果分类——预测错的代价是假绿或假账,跑一遍的代价只是几秒。
 
     可见性按样本文件的类别分:
@@ -162,6 +162,7 @@ class Fixture:
     needs_index: bool = False
     requires: str = ""
     language: str = ""
+    strip: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def tree(self) -> Path:
@@ -203,6 +204,11 @@ def load_fixtures() -> list[Fixture]:
                 needs_index=bool(spec.get("stage")),
                 requires=requires,
                 language=str(spec.get("language", "")).strip(),
+                strip=[
+                    {"file": str(item["file"]), "table": str(item["table"])}
+                    for item in spec.get("strip", [])
+                    if isinstance(item, dict) and item.get("file") and item.get("table")
+                ],
             )
         )
     return fixtures
@@ -238,6 +244,30 @@ def plant(tree: Path) -> list[Path]:
 
 def backup_for(target: Path) -> Path:
     return target.with_name(f"{target.name}.fixture-backup")
+
+
+def strip_tables(specs: list[dict[str, str]]) -> list[Path]:
+    """从真文件里拿掉一整个 [[table]] 段,备份原件供 teardown 还原。
+
+    tree/ 拒绝覆盖、append/ 只能追加,于是"该有而没有"这一类判据(声明为空、清单缺项)
+    没有任何反向样本能表达 —— 而那正是静默失效最常出现的形态。这里补的是那一类。
+    不做整份替换:只从真本上剪一段,所以不存在复本与真本漂移的问题。
+    """
+    touched: list[Path] = []
+    for spec in specs:
+        target = ROOT / str(spec["file"])
+        table = str(spec["table"])
+        if not target.is_file():
+            raise SystemExit(f"[fixtures] strip target does not exist: {target.relative_to(ROOT)}")
+        original = target.read_text(encoding="utf-8")
+        stripped = re.sub(rf"(?m)^\[\[{re.escape(table)}\]\]\n(?:(?!^\[)[^\n]*\n?)*", "", original)
+        # 剪了个空等于样本没种下去,闸会照常退 0 —— 那是"第一次就绿"的断言,必须当场炸而不是当通过。
+        if tomllib.loads(stripped).get(table):
+            raise SystemExit(f"[fixtures] strip 没能拿掉 {target.relative_to(ROOT)} 里的 [[{table}]]")
+        shutil.copy2(target, backup_for(target))
+        target.write_text(stripped, encoding="utf-8")
+        touched.append(target)
+    return touched
 
 
 def append_fragments(appends: Path) -> list[Path]:
@@ -330,8 +360,8 @@ def main() -> int:
     }
     for fixture in fixtures:
         label = fixture.directory.name
-        if not fixture.tree.is_dir() and not fixture.appends.is_dir():
-            failures.append(f"fixture {label} has neither tree/ nor append/")
+        if not fixture.tree.is_dir() and not fixture.appends.is_dir() and not fixture.strip:
+            failures.append(f"fixture {label} has neither tree/ nor append/ nor strip")
             continue
         # 样本本身是 Python 代码,针对的工具在纯 TS 仓全都原地跳过 → 种下去谁也拦不住,
         # 断言"必须退非 0"会稳定误红。显式跳过,不静默通过。
@@ -347,7 +377,7 @@ def main() -> int:
         created: list[Path] = []
         results: dict[str, int] = {}
         try:
-            created = plant(fixture.tree) + append_fragments(fixture.appends)
+            created = plant(fixture.tree) + append_fragments(fixture.appends) + strip_tables(fixture.strip)
             files = [str(path.relative_to(ROOT)) for path in created if path.is_file()]
             if fixture.needs_index:
                 git(["add", "--", *files])

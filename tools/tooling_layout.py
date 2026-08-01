@@ -293,8 +293,8 @@ def is_ignored_path(path: pathlib.Path) -> bool:
 def first_party_modules() -> tuple[str, ...]:
     """支撑区里那批走 sys.path 导入的顶层模块名。
 
-    deptry 只把打包声明里的源码目录当第一方,于是 tools/ 与 .ai-config/tools/ 里的模块被报成
-    "imported but missing from the dependency definitions" —— 实测 78 条里 67 条都是这个假阳。
+    deptry 只把打包声明里的源码目录当第一方,于是 tools/ 与 .ai-config/tools/ 里的模块会被
+    整片报成 "imported but missing from the dependency definitions" —— 全是假阳。
     名单从磁盘派生,不写进 pyproject:枚举的那份每加一个检查器就会漏一次,而漏了没人会发现。
     """
     names: set[str] = set()

@@ -78,6 +78,7 @@ def run() -> list[Finding]:
 
 
 def main() -> int:
+    print(f"[examined] python_file {len(list(python_files()))}")
     findings = run()
     for finding in findings:
         sys.stderr.write(f"[encapsulation] {rel(finding.path)}:{finding.line}: {finding.message}\n")

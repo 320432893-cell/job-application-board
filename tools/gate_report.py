@@ -28,6 +28,12 @@ from typing import Any
 # 摘要里每个工具最多留这么多条 finding,其余进 detail 文件。够看出"红在哪一类",
 # 又不会让一个话痨工具吃掉整份报告。
 SUMMARY_FINDING_LIMIT = 20
+# 闸用这行把"我看了多少个单位"交回来。退出码只说"有没有违规",说不出"有没有看到东西" ——
+# 而实测这套系统里的静默失效几乎全是后者:vulture 扫 3 行、0 条声明的风险评估、
+# 语言不适用被跳过的闸,它们退出 0 的样子和真检查过一模一样。
+# 必须带单位名:各闸的单位不是同一种东西(模块 / import / 符号 / 文件 / 环 / 契约 / 样本),
+# 裸一个数字跨闸比较就是新的误导。
+EXAMINED_LINE = re.compile(r"^\s*\[examined\]\s+(?P<unit>[a-z_]+)\s+(?P<count>\d+)\s*$")
 SEVERITY_LINE = re.compile(r"^\s*\[(?P<severity>ERROR|WARNING|WARN|error|warning)\]\s*(?P<message>.+?)\s*$")
 # `path/to/file.py:12:3: MSG` / `path/to/file.py:12 MSG`:ruff、mypy 一类工具的标准形状。
 FILE_LINE = re.compile(r"^\s*(?P<file>[^\s:][^:]*\.[A-Za-z0-9_]+):(?P<line>\d+)(?::\d+)?[:\s]\s*(?P<message>.+?)\s*$")
@@ -98,6 +104,13 @@ class ToolRun:
     skipped: bool = False
     reason: str = ""
 
+    def examined(self) -> dict[str, Any] | None:
+        """从输出里取 `[examined] <unit> <count>`;没报的闸返回 None(= 这道闸还没接线)。"""
+        for line in self.output.splitlines():
+            if match := EXAMINED_LINE.match(line):
+                return {"unit": match["unit"], "count": int(match["count"])}
+        return None
+
     def as_dict(self, *, keep_raw: bool, limit: int | None = None) -> dict[str, Any]:
         findings = parse_findings(self.tool, self.output)
         kept = findings if limit is None else findings[:limit]
@@ -114,6 +127,8 @@ class ToolRun:
         if len(kept) < len(findings):
             record["findings_total"] = len(findings)
             record["findings_truncated"] = len(findings) - len(kept)
+        if examined := self.examined():
+            record["examined"] = examined
         if self.reason:
             record["reason"] = self.reason
         if keep_raw and self.output.strip():
@@ -148,6 +163,17 @@ class GateReport:
                 "findings": sum(item.get("findings_total", len(item["findings"])) for item in records),
                 # 覆盖率显式记账:红了却一条都没解析出来的工具,得去看它的 raw。
                 "failed_without_findings": [item["tool"] for item in failed if not item["findings"]],
+                # 绿灯但一个单位都没看到 —— 和红灯一样响。这是本仓静默失效的主形态:
+                # 退出 0 说明"没违规",说不出"根本没看到东西"。
+                "green_without_examining": [
+                    item["tool"]
+                    for item in records
+                    if item["ok"] and not item["skipped"] and (item.get("examined") or {}).get("count") == 0
+                ],
+                # 还没接 [examined] 的闸:不接就无法区分上面那两种绿。
+                "examined_not_reported": [
+                    item["tool"] for item in records if not item["skipped"] and "examined" not in item
+                ],
             },
             "tools": records,
         }
@@ -197,6 +223,10 @@ class GateReport:
             lines.append(f"[report]   ✗ {item['tool']} (exit {item['exit_code']}, {len(item['findings'])} 条)")
         if blind := summary["failed_without_findings"]:
             lines.append(f"[report]   ⚠ 红了但没解析出 finding,需看 raw:{', '.join(blind)}")
+        if empty := summary["green_without_examining"]:
+            lines.append(f"[report]   ⚠ 绿灯但一个单位都没看到(空闸):{', '.join(empty)}")
+        if silent := summary["examined_not_reported"]:
+            lines.append(f"[report]   · 未报 examined({len(silent)} 个):{', '.join(silent[:6])}")
         return lines
 
 

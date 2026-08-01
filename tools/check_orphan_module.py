@@ -95,6 +95,8 @@ def main(argv: list[str]) -> int:
             print(f"{path}  zone={zone}  {'已登记' if path in baseline else '未登记'}")
         return 0
 
+    # 报"扫了多少个模块"而不只是"发现几个孤儿":0 个孤儿可能是干净,也可能是一个模块都没看到。
+    print(f"[examined] module {len(inventory.get('files', []))}")
     if unregistered or problems:
         sys.stderr.write("[orphan] 零消费者闸失败:\n")
         for path in unregistered:

@@ -138,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("paths", nargs="*")  # 兼容旧签名,grimp 按 root package 建图,忽略
     args = parser.parse_args(argv)
     sccs, module_count = find_cycles(args.scope)
+    print(f"[examined] module {module_count}")
     print(f"模块 {module_count} | 循环依赖簇 {len(sccs)}\n")
     for comp in sccs:
         print("  环:", " ↔ ".join(sorted(comp)))

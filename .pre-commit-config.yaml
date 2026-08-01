@@ -40,7 +40,7 @@ repos:
       # gates/ 装的是**故意违规**的反向样本和 append/ 片段:片段不是独立合法文档
       # (append/package.json 只是要追加进真文件的一段),样本也刻意带着格式问题。
       # 让通用格式化钩子改它们,等于把样本"修好"——闸就再也拦不住自己的样本了。
-      # 实测:end-of-file-fixer 把 append/package.json 清空,提交当场中止。
+      # end-of-file-fixer 会把 append/package.json 这类片段清空,提交当场中止。
       - id: check-json
         exclude: ^gates/
       - id: check-yaml
@@ -94,6 +94,24 @@ repos:
         # 只卡新增/改动的非正式区文件缺 # lifecycle: 身份标注;full sweep 在 CI 跑。
         types: [python]
 
+      # 做减法的两道闸放自动档:AI 的短板是删代码不是写代码,而"该删没删"这类问题
+      # 靠人主动想起来跑是想不起来的。合计 ~0.96s(orphan 0.41 + dup-symbol 0.55)。
+      - id: orphan-module
+        name: orphan module (零消费者模块)
+        entry: uv run --no-project python tools/gate.py orphan-module
+        language: system
+        pass_filenames: false
+        # 全图扫描,任何 .py 改动都可能让某个模块失去最后一个 import 方。
+        types: [python]
+
+      - id: dup-symbol-changed
+        name: symbol collision (新增顶层同名符号)
+        entry: uv run --no-project python tools/gate.py dup-symbol-changed
+        language: system
+        pass_filenames: false
+        # 只审本次新增的名字:完全同名阻塞,近名只出复核材料。
+        types: [python]
+
       - id: rule-tool-contracts
         name: rule/tool contract check
         entry: uv run --no-project python tools/gate.py rule-tool-contracts
@@ -101,7 +119,7 @@ repos:
         pass_filenames: false
         # 闸自己的目录 + 仓库根上的任何文件。根级那条(`[^/]+`)刻意不列扩展名:各语言的清单
         # 都住在根上(pyproject.toml / package.json / go.mod / vite.config.ts),列扩展名的写法
-        # 每接一门新语言就漏一次——实测纯 TS 仓漏掉 package.json、vite.config.ts 等 5 个。
+        # 每接一门新语言就漏一批(TS 项目会漏掉 package.json、vite.config.ts 这些)。
         # 宁可多跑(改根上的 README 会白跑 1.2s)也不能漏触发:漏了是静默不检查。
         # 精确判据仍只有一份,在 project_model.contracts.contract_files,check.py 直接读它;
         # 这里只需要是它的超集,rule-tool-contracts 会核对这层包含关系。

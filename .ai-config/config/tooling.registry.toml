@@ -569,6 +569,7 @@ boundary = "全量只报名字/词根碰撞(WARN 不阻塞)；changed 仅对新�
 
 [[tools]]
 id = "dup-symbol-changed"
+pre_commit_hook = "dup-symbol-changed"
 languages = ["python"]  # 只对 Python 有效;未声明 python 的项目会显式跳过而不是静默通过
 capability_id = "symbol-collision"
 kind = "project-static-tool"
@@ -669,6 +670,7 @@ boundary = "Only asserts exit codes, never output text; it does not judge whethe
 
 [[tools]]
 id = "orphan-module"
+pre_commit_hook = "orphan-module"
 capability_id = "orphan-module"
 kind = "project-static-tool"
 stage_gate = "drift"

@@ -25,6 +25,9 @@ from pathlib import Path
 from typing import Any
 
 # `[ERROR] xxx` / `[WARN] xxx` / `[error] xxx`:本仓检查器最常用的行首标记。
+# 摘要里每个工具最多留这么多条 finding,其余进 detail 文件。够看出"红在哪一类",
+# 又不会让一个话痨工具吃掉整份报告。
+SUMMARY_FINDING_LIMIT = 20
 SEVERITY_LINE = re.compile(r"^\s*\[(?P<severity>ERROR|WARNING|WARN|error|warning)\]\s*(?P<message>.+?)\s*$")
 # `path/to/file.py:12:3: MSG` / `path/to/file.py:12 MSG`:ruff、mypy 一类工具的标准形状。
 FILE_LINE = re.compile(r"^\s*(?P<file>[^\s:][^:]*\.[A-Za-z0-9_]+):(?P<line>\d+)(?::\d+)?[:\s]\s*(?P<message>.+?)\s*$")
@@ -95,16 +98,22 @@ class ToolRun:
     skipped: bool = False
     reason: str = ""
 
-    def as_dict(self, *, keep_raw: bool) -> dict[str, Any]:
+    def as_dict(self, *, keep_raw: bool, limit: int | None = None) -> dict[str, Any]:
         findings = parse_findings(self.tool, self.output)
+        kept = findings if limit is None else findings[:limit]
         record: dict[str, Any] = {
             "tool": self.tool,
             "exit_code": self.exit_code,
             "ok": self.exit_code == 0,
             "skipped": self.skipped,
             "ms": round(self.seconds * 1000),
-            "findings": [item.as_dict() for item in findings],
+            "findings": [item.as_dict() for item in kept],
         }
+        # 截断必须显式记账。省略号式的"还有更多"读起来像"就这些",而这份报告的读者
+        # (人或子 agent)不会去数条目 —— 实测 basedpyright 一家吐 940KB 占整份 97%。
+        if len(kept) < len(findings):
+            record["findings_total"] = len(findings)
+            record["findings_truncated"] = len(findings) - len(kept)
         if self.reason:
             record["reason"] = self.reason
         if keep_raw and self.output.strip():
@@ -118,13 +127,16 @@ class GateReport:
 
     target: str = ""
     runs: list[ToolRun] = field(default_factory=list)
+    # 全局视图过期比没有更危险:实测这份产物停在 7/28,而仓库已经推进到 8/02,
+    # 拿它当现状就是在读假数据。指纹让读者能一眼判出"这份快照对不对得上当前工作树"。
+    fingerprint: str = ""
 
     def record(self, tool: str, exit_code: int, seconds: float, output: str = "", **extra: Any) -> None:
         """记一次工具运行。extra 收 skipped/reason,让参数个数不随字段增长。"""
         self.runs.append(ToolRun(tool=tool, exit_code=exit_code, seconds=seconds, output=output, **extra))
 
-    def as_dict(self, *, keep_raw: bool = True) -> dict[str, Any]:
-        records = [run.as_dict(keep_raw=keep_raw) for run in self.runs]
+    def as_dict(self, *, keep_raw: bool = True, limit: int | None = None) -> dict[str, Any]:
+        records = [run.as_dict(keep_raw=keep_raw, limit=limit) for run in self.runs]
         failed = [item for item in records if not item["ok"] and not item["skipped"]]
         return {
             "schema": 1,
@@ -133,7 +145,7 @@ class GateReport:
                 "tools": len(records),
                 "skipped": sum(1 for item in records if item["skipped"]),
                 "failed": len(failed),
-                "findings": sum(len(item["findings"]) for item in records),
+                "findings": sum(item.get("findings_total", len(item["findings"])) for item in records),
                 # 覆盖率显式记账:红了却一条都没解析出来的工具,得去看它的 raw。
                 "failed_without_findings": [item["tool"] for item in failed if not item["findings"]],
             },
@@ -145,6 +157,31 @@ class GateReport:
         path.write_text(
             json.dumps(self.as_dict(keep_raw=keep_raw), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+
+    def write_layered(self, path: Path, *, limit: int = SUMMARY_FINDING_LIMIT) -> list[Path]:
+        """总分两层:摘要一份给人和子 agent 读,红了的工具各自一份全量详情按需取。
+
+        为什么不塞一个文件:实测单文件 1.25MB,其中 basedpyright 一家 940KB(97%)——
+        读者要的是"它红了、2419 条、九成是类型未知族",不是那 2419 条。而全量又不能丢,
+        否则查具体某条时没有出处。
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        written: list[Path] = []
+        summary = self.as_dict(keep_raw=False, limit=limit)
+        summary["fingerprint"] = self.fingerprint
+        summary["detail_paths"] = {}
+        for run in self.runs:
+            record = run.as_dict(keep_raw=False)
+            if record["ok"] or record["skipped"] or not record["findings"]:
+                continue
+            detail = path.with_name(f"{path.stem}.{run.tool}{path.suffix}")
+            detail.write_text(
+                json.dumps(run.as_dict(keep_raw=True), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+            summary["detail_paths"][run.tool] = detail.name
+            written.append(detail)
+        path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return [path, *written]
 
     def summary_lines(self) -> list[str]:
         """人看的一屏汇总:只列红的和跳过的,绿的不占地方。"""
@@ -165,6 +202,6 @@ class GateReport:
 
 def finalize(report: GateReport, path: Path) -> None:
     """落盘 + 打印一屏汇总。放在这里而不是 check.py:那边有行数棘轮,逻辑该住实现层。"""
-    report.write(path)
+    written = report.write_layered(path)
     print("\n".join(report.summary_lines()))
-    print(f"[report] 写入 {path}")
+    print(f"[report] 写入 {path}" + (f" + {len(written) - 1} 份详情" if len(written) > 1 else ""))

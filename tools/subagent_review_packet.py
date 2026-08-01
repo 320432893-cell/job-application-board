@@ -51,6 +51,20 @@ def zone_counts(inventory: dict[str, Any]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def gate_index() -> list[dict[str, str]]:
+    """每道闸在拦什么 —— 取自反向样本的 violates 一行。
+
+    这是全仓最便宜也最准的"闸在干什么"索引:读它一页,顶替读 3625 行专属实现。
+    准确性由构造保证 —— 每一行对应的样本必须真把那道闸拦红,否则 gate-fixtures 就失败。
+    """
+    rows: list[dict[str, str]] = []
+    for spec in sorted((ROOT / "gates").glob("*/fixture.toml")):
+        data = load_toml(spec)
+        violates = str(data.get("violates", "")).strip()
+        rows.extend({"tool": str(tool), "blocks": violates} for tool in data.get("tools", []))
+    return rows
+
+
 def compact_stage_packet(packet: dict[str, Any]) -> dict[str, Any]:
     changed_files = packet.get("changed_files", [])
     return {
@@ -176,6 +190,7 @@ def build_context(stage: str) -> dict[str, Any]:
             "findings_sample": limited_items(discovery.get("findings"))[:30],
         },
         "stage_packet": compact_stage_packet(stage_packet),
+        "gate_index": gate_index(),
         "capability_catalog": capability_catalog() if stage == "cleanup" else [],
     }
 
@@ -250,6 +265,9 @@ def prompt_for(review: dict[str, Any], context: dict[str, Any]) -> str:
 - stage_tool_skips: `{json.dumps(context["stage_packet"].get("stage_tool_skips", []), ensure_ascii=False)}`
 - changed_count: {context["stage_packet"]["changed_count"]}
 - stage_gate_groups: `{json.dumps(context["stage_gate_groups"], ensure_ascii=False)}`
+
+## 每道闸在拦什么(取自反向样本,每条都被证明真能拦红)
+{chr(10).join(f"- `{row['tool']}` — {row['blocks']}" for row in context.get("gate_index", []))}
 - capability_catalog: `{json.dumps(context.get("capability_catalog", []), ensure_ascii=False)}`
 
 ## 本 agent 重点

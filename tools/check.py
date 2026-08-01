@@ -25,6 +25,7 @@ import baseline_policy
 import check_changed
 import evidence_extractors as evidence
 import gate_report
+import review_fingerprint
 import tooling_registry
 from project_model import load_project_model_dict
 from project_model import path_matches as model_path_matches
@@ -691,6 +692,8 @@ def main() -> int:
         print_dry_run(args.target, stages)
         return 0
     REPORT.target = args.target
+    # 指纹在跑之前取:跑完再取会把闸自己产生的 .cache 写入算进去。
+    REPORT.fingerprint = review_fingerprint.report_fingerprint(ROOT, "changed")
     if args.target == "all":
         status = run_all(stages)
     else:

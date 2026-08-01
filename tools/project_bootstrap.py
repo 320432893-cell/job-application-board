@@ -18,6 +18,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence_extractors as evidence
 import inventory as inventory_tool
+import lang_python
 from review_fingerprint import report_fingerprint
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -356,10 +357,133 @@ def _reasons(row: dict[str, object]) -> list[object]:
     return value if isinstance(value, list) else []
 
 
+FACTS_PATH = ROOT / ".cache" / "bootstrap-facts.json"
+
+
+def _add_import_edges(
+    path: Path, source: str, module_files: dict[str, str], by_pair: dict[tuple[str, str], dict[str, object]]
+) -> None:
+    imports, _symbols, _error = lang_python.parse_source(path, source)
+    for record in imports:
+        target = module_files.get(str(record.get("module", ""))) or module_files.get(str(record.get("root", "")))
+        if not target or target == source:
+            continue
+        row = by_pair.setdefault(
+            (source, target),
+            {
+                "source": source,
+                "target": target,
+                "source_kind": evidence.path_kind(source),
+                "target_kind": evidence.path_kind(target),
+                "edge_kind": "import",
+                "tokens": [],
+            },
+        )
+        entry = {"token": str(record.get("module", "")), "token_source": "python_import"}
+        if entry not in row["tokens"]:
+            row["tokens"].append(entry)
+
+
+def facts_report() -> dict[str, object]:
+    """只有事实的那一层:不筛行、不截断、不带取值恒定的样板字段。
+
+    现有 build 的产物里,reference_edges 每条 13 个键有 5 个在全部边上取值相同
+    (kind/resolution_mode/evidence_role/decision_role/blocking),占 68% 字节;
+    而 confidence 去重会把 224 条边压成 154 条 —— 筛掉的正是读者可能想看的那批。
+    这里每条判断改成一列布尔或一个字段值,行一条不丢。
+    """
+    model = inventory_tool.load_project_model()
+    files, _ignored_dirs = iter_repo_files(model)
+    known = {rel(path) for path in files}
+    edges: list[dict[str, object]] = []
+    # 模块名 → 文件,用来把 import 解析成边。原来这张表里一条 import 边都没有:
+    # 实测 tests/test_gate_report.py 没有指向 tools/gate_report.py 的边,而它显然 import 了。
+    # 少了这一层,py→py 的关系全靠"路径字符串被提到过",而拼出来的路径
+    # (ROOT / "config" / "x.json")根本不会作为单个字面量出现 —— 那正是把两个活着的
+    # baseline 误判成"零引用"的原因。
+    module_files: dict[str, str] = {}
+    for path in files:
+        if path.suffix != ".py":
+            continue
+        name = rel(path)
+        module_files.setdefault(PurePosixPath(name).stem, name)
+        module_files.setdefault(PurePosixPath(name).with_suffix("").as_posix().replace("/", "."), name)
+    for path in files:
+        source = rel(path)
+        tokens: list[tuple[str, str, str]] = []
+        if path.suffix.lower() == ".py":
+            tokens.extend(
+                (token, "python_ast_string_literal", "medium")
+                for token in evidence.string_tokens_from_python(path, filename=source)
+            )
+        if text := evidence.read_small_text(path, max_bytes=MAX_TEXT_BYTES):
+            tokens.extend(
+                (token, "small_text_or_comment_token", "weak") for token in evidence.string_tokens_from_text(text)
+            )
+        # 按 (source,target) 聚合,token 全留成一列。原来的去重会按 confidence 只保一条 token,
+        # 那才是丢信息;但不聚合也不对 —— 实测同一对文件平均被 5.5 个 token 引用,
+        # 一条边拆成 5.5 行会让产物从 91KB 涨到 260KB,而边本身才是事实,token 只是发现方式。
+        by_pair: dict[tuple[str, str], dict[str, object]] = {}
+        if path.suffix == ".py":
+            _add_import_edges(path, source, module_files, by_pair)
+        for token, token_source, confidence in tokens:
+            if not (target := evidence.resolve_reference(source, token, known)):
+                continue
+            row = by_pair.setdefault(
+                (source, target),
+                {
+                    "source": source,
+                    "target": target,
+                    "source_kind": evidence.path_kind(source),
+                    "target_kind": evidence.path_kind(target),
+                    # import 边和"路径被提到过"是两回事,前者证明运行时依赖、后者只证明有人写过这串字符。
+                    # 混成一种 kind 就等于让读者把注释里随口一提当成依赖。
+                    "edge_kind": "path_mention",
+                    "tokens": [],
+                },
+            )
+            entry = {"token": token[:120], "token_source": token_source, "confidence": confidence}
+            if entry not in row["tokens"]:
+                row["tokens"].append(entry)
+        edges.extend(by_pair.values())
+    rows: list[dict[str, object]] = []
+    for path in files:
+        name = rel(path)
+        row: dict[str, object] = {
+            "path": name,
+            "kind": evidence.path_kind(name),
+            "zone": inventory_tool.classify(name, model)[0],
+        }
+        if path.suffix == ".py":
+            # 原来"没有 main guard 就 continue",于是非入口的 .py 整行消失。改成一列。
+            row["python_main_guard"] = evidence.has_python_main_guard(path, filename=name)
+            # defines:没有它,零入边的库模块和真死码在表里完全同形 —— 上一轮 agent 就因此
+            # 把 8 个文件全标成"判不出死活"。
+            _imports, symbols, error = lang_python.parse_source(path, name)
+            row["defines"] = sorted({str(item.get("name", "")) for item in symbols if item.get("name")})
+            if error:
+                row["parse_error"] = error
+        rows.append(row)
+    return {
+        "schema": 1,
+        "fingerprint": report_fingerprint(ROOT, "full"),
+        "counts": {"files": len(rows), "reference_edges": len(edges)},
+        "files": sorted(rows, key=lambda item: str(item["path"])),
+        "reference_edges": sorted(edges, key=lambda item: (str(item["source"]), str(item["target"]))),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["build", "print"], nargs="?", default="build")
+    parser.add_argument("command", choices=["build", "print", "facts"], nargs="?", default="build")
     args = parser.parse_args(argv)
+    if args.command == "facts":
+        facts = facts_report()
+        FACTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        FACTS_PATH.write_text(json.dumps(facts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        counts = facts["counts"]
+        print(f"[project-bootstrap] wrote {FACTS_PATH.relative_to(ROOT)} ({counts})")
+        return 0
     report = build_report()
     if args.command == "print":
         printable = dict(report)

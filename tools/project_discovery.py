@@ -496,6 +496,94 @@ def declared_empty_findings(inventory: dict, model: inventory_tool.ProjectModel)
     return findings
 
 
+FACTS_PATH = ROOT / ".cache" / "discovery-facts.json"
+
+
+def facts_report() -> dict[str, object]:
+    """事实层:三张全量表,判断改成列,行一条不丢。
+
+    对照现有 findings 的筛法:
+      orphan_tool_findings —— 15 个带 main guard 的 tools/*.py 里只有 1 个进产物
+        (`is_orphan_tool_path` 不过就 continue、在 registry 里也 continue)。
+      declared_empty_findings —— 只有"声明了但空/缺失"的进表,"声明了且正常"整行消失。
+      iter_unmodeled_source_files —— 三连 continue(非 source 后缀 / 被 ignore / 已分类)。
+    这三处筛的都是**真过滤**(丢行),不是聚合,所以每条改成一列布尔。
+    """
+    model = inventory_tool.load_project_model()
+    inventory = inventory_tool.build_inventory("full")
+    ignored = inventory_tool.pathspec_from(model.ignore.patterns)
+    targets = registry_command_targets()
+
+    tools_rows = [
+        {
+            "path": name,
+            "python_main_guard": evidence.has_python_main_guard(ROOT / name, filename=name),
+            "registry_command_target": name in targets,
+        }
+        for name in sorted(
+            str(item.get("path") or "")
+            for item in inventory.get("files", [])
+            if PurePosixPath(str(item.get("path") or "")).parent.as_posix() == "tools"
+            and str(item.get("path") or "").endswith(".py")
+        )
+    ]
+
+    declared_rows: list[dict[str, object]] = []
+    known = [str(item.get("path", "")) for item in inventory.get("files", [])]
+    for zone in model.zones:
+        declared_rows.extend(
+            {
+                "declared_in": f"zone.{zone.id}.dirs",
+                "path": directory,
+                "exists": (ROOT / directory).exists(),
+                "is_dir": (ROOT / directory).is_dir(),
+                "has_inventory_files": any(inventory_tool.is_under(path, directory) for path in known),
+            }
+            for directory in zone.dirs
+        )
+        declared_rows.extend(
+            {
+                "declared_in": f"zone.{zone.id}.files",
+                "path": path_name,
+                "exists": (ROOT / path_name).exists(),
+                "is_dir": (ROOT / path_name).is_dir(),
+                "has_inventory_files": path_name in known,
+            }
+            for path_name in zone.files
+        )
+
+    source_rows: list[dict[str, object]] = []
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        directory = Path(dirpath)
+        rel_dir = "" if directory == ROOT else rel(directory)
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if not inventory_tool.is_ignored_directory(d if not rel_dir else f"{rel_dir}/{d}", ignored)
+        ]
+        for filename in filenames:
+            name = rel(directory / filename)
+            if ignored.match_file(name):
+                continue
+            source_rows.append(
+                {
+                    "path": name,
+                    "suffix": Path(name).suffix,
+                    "source_like": evidence.is_probable_source_file(name),
+                    "zone": inventory_tool.classify(name, model)[0],
+                }
+            )
+
+    return {
+        "schema": 1,
+        "fingerprint": report_fingerprint(ROOT, "full"),
+        "counts": {"tools": len(tools_rows), "declared": len(declared_rows), "files": len(source_rows)},
+        "tools": tools_rows,
+        "declared_paths": declared_rows,
+        "files": sorted(source_rows, key=lambda item: str(item["path"])),
+    }
+
+
 def build_report(scope: str = "full") -> dict[str, object]:
     model = inventory_tool.load_project_model()
     inventory = cached_report(inventory_tool.INVENTORY_PATH, ROOT, scope=scope)
@@ -555,9 +643,15 @@ def print_human_summary(report: dict[str, object]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["scan", "anomalies", "check", "print"], nargs="?", default="check")
+    parser.add_argument("command", choices=["scan", "anomalies", "check", "print", "facts"], nargs="?", default="check")
     parser.add_argument("--scope", choices=["full", "changed"], default="full")
     args = parser.parse_args(argv)
+    if args.command == "facts":
+        facts = facts_report()
+        FACTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        FACTS_PATH.write_text(json.dumps(facts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"[project-discovery] wrote {FACTS_PATH.relative_to(ROOT)} ({facts['counts']})")
+        return 0
 
     report = build_report(scope=args.scope)
     if args.command in {"scan", "anomalies", "check"}:

@@ -798,29 +798,6 @@ def check_layout_literals_in_side_configs(root: pathlib.Path, _registry: dict, i
                 break
 
 
-def check_detect_secrets_exclusions_agree(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None:
-    """detect-secrets 的排除表在两处各写了一份(全量扫的 registry 命令 / 只扫暂存区的 pre-commit),
-    两处都必须列同一批路径。
-
-    为什么不合并成一份:一处是 TOML 里的 shell 参数,一处是 YAML 里的多行正则,没有共同的宿主。
-    合不了就至少别让它们静默分叉——分叉的后果是 pre-commit 绿、全量扫红,同一份文件两种结论。
-    """
-    command = " ".join(
-        str(item)
-        for tool in registry.get("tools", [])
-        if tool.get("id") == "detect-secrets"
-        for item in tool.get("entrypoint_commands", [])
-    )
-    hook = find_pre_commit_hook(load_pre_commit_config(root / ".pre-commit-config.yaml"), "detect-secrets")
-    excluded = str((hook or {}).get("exclude") or "")
-    # 抹掉反斜杠再做子串比对,不要 re.escape:它会把 `-` 也转义成 `\-`,而两份正则里写的都是裸 `-`,
-    # 于是"两边都找不到"→ 两边一致 → 恒真通过,这道闸就没牙了。
-    for path in (".ai-config/template-state.json", "uv.lock", ".ai-config/config/settings.json"):
-        in_command, in_hook = path in command.replace("\\", ""), path in excluded.replace("\\", "")
-        if in_command != in_hook:
-            where = "registry 命令" if in_command else "pre-commit exclude"
-            issues.append(Issue("ERROR", f"detect-secrets 排除表分叉:`{path}` 只在 {where} 里排除了,另一处没有"))
-
 
 def check_side_config_ownership(root: pathlib.Path, registry: dict, issues: list[Issue]) -> None:
     """受管的边车配置必须被 registry 里某个工具 configured_in 认领。
@@ -927,7 +904,6 @@ def main() -> int:
     check_registered_check_scripts(ROOT, registry, issues)
     check_layout_literals_in_side_configs(ROOT, registry, issues)
     check_side_config_ownership(ROOT, registry, issues)
-    check_detect_secrets_exclusions_agree(ROOT, registry, issues)
     check_gitignore(ROOT, issues)
     check_tools(ROOT, registry, issues)
     check_scan_command_hygiene(registry, issues)

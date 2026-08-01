@@ -308,8 +308,9 @@ configured_in = [".pre-commit-config.yaml"]
 pre_commit_hook = "detect-secrets"
 # detect-secrets-hook(不是 scan)：scan 只吐 baseline JSON、恒退 0；hook 才会在发现密钥时退非 0。
 # hook 不递归目录，所以必须用 {scannable_files} 展开成显式文件清单。
-# --exclude-files 与 .pre-commit-config.yaml 的 exclude 保持同一集合。
-entrypoint_commands = ["uv run detect-secrets-hook --exclude-files '^(uv\\.lock|\\.ai-config/config/settings\\.json|\\.ai-config/template-state\\.json|gates/.*)$' {scannable_files}"]
+# 排除表只有一份,住在 .pre-commit-config.yaml 的 exclude 里(pre-commit 读不了 TOML,
+# 那个值必须在 YAML;这边是 CLI 参数,运行时读得到)。{secret_exclude_regex} 直接引用它。
+entrypoint_commands = ["uv run detect-secrets-hook {secret_exclude_regex} {scannable_files}"]
 stages = ["ci", "cleanup"]
 boundary = "Does not decide whether a found value is safe to publish; human review is still required."
 

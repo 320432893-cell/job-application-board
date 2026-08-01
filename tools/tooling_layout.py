@@ -12,6 +12,7 @@ from collections.abc import Iterable, Sequence
 from functools import lru_cache
 
 import tooling_registry
+import yaml
 from project_model import load_project_model_dict
 from repo_files import scannable_files
 
@@ -326,8 +327,27 @@ PLACEHOLDER_VALUES = {
 
 # 展开成 CLI 参数(不是路径)的占位符:不能过 existing_paths —— 那一层是给路径清单去掉不存在项用的,
 # 拿它筛 `--known-first-party` 这种旗标会把整串吃掉。
+def secret_exclude_flags() -> tuple[str, ...]:
+    """detect-secrets 的排除表,从 .pre-commit-config.yaml 那一份读出来。
+
+    宿主选 YAML 不选 registry:pre-commit 只认自己的 YAML、读不了 TOML,所以这个值**必须**
+    存在于 YAML 里;而 registry 这一侧是 CLI 参数,运行时想读什么都行。让能读的一方去引用
+    不能读的一方,双写就不存在了 —— 反过来做就还得留一个对账器证明两份一致。
+    """
+    config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")) or {}
+    for repo in config.get("repos", []):
+        for hook in repo.get("hooks", []):
+            if hook.get("id") == "detect-secrets":
+                pattern = " ".join(str(hook.get("exclude", "")).split())
+                if not pattern:
+                    raise SystemExit("[layout] .pre-commit-config.yaml 的 detect-secrets hook 没有 exclude")
+                return ("--exclude-files", pattern)
+    raise SystemExit("[layout] .pre-commit-config.yaml 里找不到 detect-secrets hook")
+
+
 PLACEHOLDER_FLAGS = {
     "{known_first_party_flags}": known_first_party_flags,
+    "{secret_exclude_regex}": secret_exclude_flags,
 }
 
 
